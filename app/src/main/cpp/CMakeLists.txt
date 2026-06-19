@@ -39,6 +39,10 @@ if(EXISTS "${FREERDP_DIR}/CMakeLists.txt")
     set(WITH_FFMPEG OFF CACHE BOOL "" FORCE)
     set(WITH_CUPS OFF CACHE BOOL "" FORCE)
     set(WITH_PULSE OFF CACHE BOOL "" FORCE)
+    # يمنع ConfigOptions.cmake في FreeRDP من تشغيل find_package(PulseAudio)
+    # حتى كـ optional probe — على Android لا وجود لـ PulseAudio أساساً،
+    # فالنتيجة كانت تحذير CMake غير مؤثر على نجاح البناء، لكن إخفاؤه أنظف.
+    set(CMAKE_DISABLE_FIND_PACKAGE_PulseAudio TRUE CACHE BOOL "" FORCE)
     set(WITH_X11 OFF CACHE BOOL "" FORCE)
     set(WITH_WAYLAND OFF CACHE BOOL "" FORCE)
 
