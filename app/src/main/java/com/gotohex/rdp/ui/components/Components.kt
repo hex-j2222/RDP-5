@@ -42,6 +42,7 @@ import com.gotohex.rdp.ui.theme.*
 import kotlin.math.*
 import kotlin.random.Random
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.BorderStroke  // ← هذا السطر كان مفقوداً
 
 // ── Shared Sound Manager Access (issue #9) ────────────────────────────────────
 // Provided at the app root (MainActivity) so any composable — especially the
