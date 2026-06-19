@@ -31,6 +31,23 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
+
+        // عندما تُبنى FreeRDP فعلياً (submodule موجود)، find_package(OpenSSL)
+        // التقليدي في CMake يبحث في مسارات النظام (Linux/host) بدل sysroot
+        // الخاص بـ NDK، فيجد OpenSSL غير متوافق مع target Android ويفشل
+        // تكوين CMake بالكامل (هذا سبب فشل configureCMakeDebug في الـ CI).
+        // الحل: نمرر جذر OpenSSL المخصص لأندرويد (مبني مسبقاً في CI عبر
+        // سكربت FreeRDP الرسمي android-build-openssl.sh، انظر main.yml)
+        // إلى CMake عبر متغير البيئة ANDROID_OPENSSL_ROOT.
+        val androidOpenSslRoot = System.getenv("ANDROID_OPENSSL_ROOT")
+        if (!androidOpenSslRoot.isNullOrBlank()) {
+            externalNativeBuild {
+                cmake {
+                    arguments += "-DOPENSSL_ROOT_DIR=$androidOpenSslRoot"
+                    arguments += "-DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH"
+                }
+            }
+        }
     }
 
     // ── Native build via CMake ────────────────────────────────────────────────
@@ -76,7 +93,12 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
-            excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+            // bcprov-jdk18on و jsch كلاهما يشحن نفس مسار MANIFEST.MF
+            // داخل multi-release jar (versions/9 و versions/11)، ما يسبب
+            // فشل mergeDebugJavaResource. هذا الملف مجرد بيان OSGi
+            // وغير ضروري وقت التشغيل على أندرويد، فنستثنيه بالكامل
+            // بدلاً من استثناء نسخة واحدة فقط.
+            excludes += "META-INF/versions/*/OSGI-INF/MANIFEST.MF"
         }
     }
 
