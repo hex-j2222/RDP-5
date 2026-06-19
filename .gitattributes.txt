@@ -1,0 +1,17 @@
+# Default behavior: auto-detect text vs binary
+* text=auto
+
+# Explicitly exclude gradle-wrapper.jar from LFS
+# (must be stored as a regular binary in git, not LFS pointer)
+gradle/wrapper/gradle-wrapper.jar -text -filter -merge -diff
+gradle/wrapper/gradle-wrapper.jar !filter !merge !diff !lfs
+
+# Common LFS patterns for large files
+*.png filter=lfs diff=lfs merge=lfs -text
+*.jpg filter=lfs diff=lfs merge=lfs -text
+*.jpeg filter=lfs diff=lfs merge=lfs -text
+*.gif filter=lfs diff=lfs merge=lfs -text
+*.so filter=lfs diff=lfs merge=lfs -text
+*.apk filter=lfs diff=lfs merge=lfs -text
+*.aab filter=lfs diff=lfs merge=lfs -text
+
