@@ -4,7 +4,7 @@ import androidx.room.*
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.gotohex.rdp.data.model.RdpProfile
 import kotlinx.coroutines.flow.Flow
-
+import androidx.room.migration.Migration  // ← هذا السطر كان مفقوداً
 @Dao
 interface RdpProfileDao {
     @Query("SELECT * FROM rdp_profiles ORDER BY sortOrder ASC, createdAt DESC")
