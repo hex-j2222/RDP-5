@@ -61,16 +61,27 @@ jobs:
           distribution: temurin
           cache: gradle
 
-      # يولّد gradlew + gradle-wrapper.jar + gradle-wrapper.properties
-      # تلقائياً إن كانت غائبة أو غير مكتملة في الريبو
-      - name: Generate Gradle Wrapper (if missing)
+      # يولّد gradlew + gradlew.bat + gradle/wrapper/* من الصفر
+      # تلقائياً إذا كانت غائبة أو غير مكتملة في الريبو (الحالة الشائعة
+      # عندما لا توجد ملفات Gradle محلياً على الإطلاق)
+      - name: Bootstrap Gradle Wrapper (if missing)
+        shell: bash
         run: |
-          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "⚠️ gradle-wrapper.jar غير موجود أو فارغ — يتم توليده تلقائياً"
-            which gradle >/dev/null 2>&1 || (sudo apt-get update -y && sudo apt-get install -y gradle)
+          if [ ! -f "gradlew" ] || [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "⚠️ ملفات Gradle Wrapper غير موجودة أو غير مكتملة — يتم تنزيلها وتوليدها تلقائياً"
+
+            # تنزيل توزيعة Gradle الرسمية مباشرة (لا يعتمد على apt)
+            curl -fsSL -o /tmp/gradle.zip \
+              "https://services.gradle.org/distributions/gradle-${{ env.GRADLE_VERSION }}-bin.zip"
+            unzip -q /tmp/gradle.zip -d /tmp
+            export PATH="/tmp/gradle-${{ env.GRADLE_VERSION }}/bin:$PATH"
+
+            # توليد gradlew + gradlew.bat + gradle/wrapper/gradle-wrapper.jar
             gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }} --distribution-type all
+
+            echo "✅ تم توليد Gradle Wrapper بنجاح (الإصدار ${{ env.GRADLE_VERSION }})"
           else
-            echo "✅ gradle-wrapper.jar موجود"
+            echo "✅ Gradle Wrapper موجود مسبقاً في الريبو"
           fi
 
       - run: chmod +x gradlew
@@ -102,15 +113,21 @@ jobs:
           distribution: temurin
           cache: gradle
 
-      # يولّد ملفات الـ wrapper تلقائياً إن كانت غائبة أو معطوبة
-      - name: Generate Gradle Wrapper (if missing)
+      # يولّد gradlew + gradlew.bat + gradle/wrapper/* من الصفر
+      # تلقائياً إذا كانت غائبة أو غير مكتملة في الريبو
+      - name: Bootstrap Gradle Wrapper (if missing)
+        shell: bash
         run: |
-          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "⚠️ gradle-wrapper.jar غير موجود أو فارغ — يتم توليده تلقائياً"
-            which gradle >/dev/null 2>&1 || (sudo apt-get update -y && sudo apt-get install -y gradle)
+          if [ ! -f "gradlew" ] || [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "⚠️ ملفات Gradle Wrapper غير موجودة أو غير مكتملة — يتم تنزيلها وتوليدها تلقائياً"
+            curl -fsSL -o /tmp/gradle.zip \
+              "https://services.gradle.org/distributions/gradle-${{ env.GRADLE_VERSION }}-bin.zip"
+            unzip -q /tmp/gradle.zip -d /tmp
+            export PATH="/tmp/gradle-${{ env.GRADLE_VERSION }}/bin:$PATH"
             gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }} --distribution-type all
+            echo "✅ تم توليد Gradle Wrapper بنجاح (الإصدار ${{ env.GRADLE_VERSION }})"
           else
-            echo "✅ gradle-wrapper.jar موجود"
+            echo "✅ Gradle Wrapper موجود مسبقاً في الريبو"
           fi
 
       # 3. تثبيت NDK + CMake تلقائياً
@@ -196,14 +213,19 @@ jobs:
           distribution: temurin
           cache: gradle
 
-      - name: Generate Gradle Wrapper (if missing)
+      - name: Bootstrap Gradle Wrapper (if missing)
+        shell: bash
         run: |
-          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "⚠️ gradle-wrapper.jar غير موجود أو فارغ — يتم توليده تلقائياً"
-            which gradle >/dev/null 2>&1 || (sudo apt-get update -y && sudo apt-get install -y gradle)
+          if [ ! -f "gradlew" ] || [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "⚠️ ملفات Gradle Wrapper غير موجودة أو غير مكتملة — يتم تنزيلها وتوليدها تلقائياً"
+            curl -fsSL -o /tmp/gradle.zip \
+              "https://services.gradle.org/distributions/gradle-${{ env.GRADLE_VERSION }}-bin.zip"
+            unzip -q /tmp/gradle.zip -d /tmp
+            export PATH="/tmp/gradle-${{ env.GRADLE_VERSION }}/bin:$PATH"
             gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }} --distribution-type all
+            echo "✅ تم توليد Gradle Wrapper بنجاح (الإصدار ${{ env.GRADLE_VERSION }})"
           else
-            echo "✅ gradle-wrapper.jar موجود"
+            echo "✅ Gradle Wrapper موجود مسبقاً في الريبو"
           fi
 
       - name: Install NDK & CMake
@@ -263,3 +285,4 @@ jobs:
           files: app/build/outputs/apk/release/HexRDP-${{ github.ref_name }}.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
