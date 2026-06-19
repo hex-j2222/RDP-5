@@ -183,20 +183,59 @@ jobs:
       - name: Build OpenSSL for Android
         if: steps.openssl-cache.outputs.cache-hit != 'true'
         run: |
-          # تعيين المتغيرات التي يطلبها سكربت FreeRDP
           export ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}
           export ANDROID_SDK=$ANDROID_SDK_ROOT
-          echo "ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT"
-          echo "ANDROID_SDK=$ANDROID_SDK"
-          cd ${{ env.FREERDP_PATH }}
-          chmod +x scripts/android-build-openssl.sh
-          # بناء لكل معمارية
-          ./scripts/android-build-openssl.sh arm64-v8a
-          ./scripts/android-build-openssl.sh x86_64
-          # جمع المخرجات في مجلد واحد
-          mkdir -p ${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}
-          cp -r ./openssl-* ${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}/
-          echo "✅ OpenSSL built successfully"
+
+          # ── تثبيت OpenSSL source ────────────────────────────────────
+          OPENSSL_VERSION="3.3.2"
+          OPENSSL_TAR="openssl-${OPENSSL_VERSION}.tar.gz"
+          curl -fsSL "https://www.openssl.org/source/${OPENSSL_TAR}" -o /tmp/${OPENSSL_TAR}
+          tar -xf /tmp/${OPENSSL_TAR} -C /tmp
+
+          TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
+          API=26   # minSdk من build.gradle.kts
+          BUILD_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}
+          mkdir -p "$BUILD_ROOT"
+
+          build_openssl() {
+            local ABI=$1
+            local ARCH=$2
+            local TARGET=$3
+            local HOST_TAG=$4
+
+            echo "🔨 Building OpenSSL for $ABI ..."
+            cd /tmp/openssl-${OPENSSL_VERSION}
+
+            # تنظيف من أي بناء سابق
+            make clean 2>/dev/null || true
+
+            export CC=$TOOLCHAIN/bin/${TARGET}${API}-clang
+            export CXX=$TOOLCHAIN/bin/${TARGET}${API}-clang++
+            export AR=$TOOLCHAIN/bin/llvm-ar
+            export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
+            export STRIP=$TOOLCHAIN/bin/llvm-strip
+            export LD=$TOOLCHAIN/bin/ld.lld
+            export NM=$TOOLCHAIN/bin/llvm-nm
+
+            local OUT="$BUILD_ROOT/openssl-${ABI}"
+            mkdir -p "$OUT"
+
+            ./Configure ${ARCH} \
+              -D__ANDROID_API__=${API} \
+              --prefix="$OUT" \
+              --openssldir="$OUT/ssl" \
+              no-shared \
+              no-tests
+
+            make -j$(nproc)
+            make install_sw
+            echo "✅ OpenSSL built for $ABI → $OUT"
+          }
+
+          build_openssl "arm64-v8a" "android-arm64" "aarch64-linux-android" "aarch64-linux-android"
+          build_openssl "x86_64"   "android-x86_64" "x86_64-linux-android"  "x86_64-linux-android"
+
+          echo "✅ OpenSSL built successfully for all ABIs"
 
       # 9. تعيين متغير البيئة ANDROID_OPENSSL_ROOT لاستخدامه في Gradle
       - name: Set OpenSSL root environment variable
@@ -300,12 +339,51 @@ jobs:
         run: |
           export ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}
           export ANDROID_SDK=$ANDROID_SDK_ROOT
-          cd ${{ env.FREERDP_PATH }}
-          chmod +x scripts/android-build-openssl.sh
-          ./scripts/android-build-openssl.sh arm64-v8a
-          ./scripts/android-build-openssl.sh x86_64
-          mkdir -p ${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}
-          cp -r ./openssl-* ${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}/
+
+          OPENSSL_VERSION="3.3.2"
+          OPENSSL_TAR="openssl-${OPENSSL_VERSION}.tar.gz"
+          curl -fsSL "https://www.openssl.org/source/${OPENSSL_TAR}" -o /tmp/${OPENSSL_TAR}
+          tar -xf /tmp/${OPENSSL_TAR} -C /tmp
+
+          TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
+          API=26
+          BUILD_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}
+          mkdir -p "$BUILD_ROOT"
+
+          build_openssl() {
+            local ABI=$1
+            local ARCH=$2
+            local TARGET=$3
+
+            echo "🔨 Building OpenSSL for $ABI ..."
+            cd /tmp/openssl-${OPENSSL_VERSION}
+            make clean 2>/dev/null || true
+
+            export CC=$TOOLCHAIN/bin/${TARGET}${API}-clang
+            export CXX=$TOOLCHAIN/bin/${TARGET}${API}-clang++
+            export AR=$TOOLCHAIN/bin/llvm-ar
+            export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
+            export STRIP=$TOOLCHAIN/bin/llvm-strip
+            export LD=$TOOLCHAIN/bin/ld.lld
+            export NM=$TOOLCHAIN/bin/llvm-nm
+
+            local OUT="$BUILD_ROOT/openssl-${ABI}"
+            mkdir -p "$OUT"
+
+            ./Configure ${ARCH} \
+              -D__ANDROID_API__=${API} \
+              --prefix="$OUT" \
+              --openssldir="$OUT/ssl" \
+              no-shared \
+              no-tests
+
+            make -j$(nproc)
+            make install_sw
+            echo "✅ OpenSSL built for $ABI → $OUT"
+          }
+
+          build_openssl "arm64-v8a" "android-arm64"  "aarch64-linux-android"
+          build_openssl "x86_64"   "android-x86_64" "x86_64-linux-android"
 
       - name: Set OpenSSL root environment variable
         run: echo "ANDROID_OPENSSL_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}" >> $GITHUB_ENV
