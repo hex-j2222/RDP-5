@@ -5,11 +5,10 @@
 #
 # كيف يعمل:
 #   1. GitHub Actions يسحب كود مشروعك
-#   2. يُصلح gradle-wrapper.jar (Git LFS pointer → JAR حقيقي)
-#   3. يحمّل FreeRDP مباشرة من GitHub (git clone) إلى المكان الصحيح
-#   4. يثبّت NDK + CMake تلقائياً
-#   5. يبني APK كامل (native + Kotlin)
-#   6. يحفظ مخرجات FreeRDP في cache → البناءات التالية سريعة جداً
+#   2. يحمّل FreeRDP مباشرة من GitHub (git clone) إلى المكان الصحيح
+#   3. يثبّت NDK + CMake تلقائياً
+#   4. يبني APK كامل (native + Kotlin)
+#   5. يحفظ مخرجات FreeRDP في cache → البناءات التالية سريعة جداً
 #
 # للـ Release (APK موقّع + نشر تلقائي على GitHub Releases):
 #   أضف هذه الـ Secrets في:
@@ -19,6 +18,9 @@
 #   KEY_ALIAS         → اسم الـ alias داخل الـ keystore
 #   KEY_PASSWORD      → كلمة مرور الـ key
 #   STORE_PASSWORD    → كلمة مرور الـ keystore
+#
+#   لإنشاء keystore جديد مباشرة عبر GitHub Actions (مرة واحدة فقط):
+#   شغّل workflow يدوياً من زر "Run workflow" في تاب Actions
 # ══════════════════════════════════════════════════════════════════
 
 name: HexRDP CI/CD
@@ -52,40 +54,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # إصلاح gradle-wrapper.jar — Git LFS يخزّنه كـ pointer (97 bytes)
-      # لكن GitHub Actions لا يحمّل LFS تلقائياً → نحمّل الـ JAR الحقيقي
-      - name: Fix Gradle Wrapper JAR
-        run: |
-          JAR_SIZE=$(wc -c < gradle/wrapper/gradle-wrapper.jar)
-          echo "Current JAR size: $JAR_SIZE bytes"
-          if [ "$JAR_SIZE" -lt 10000 ]; then
-            echo "⚠️  gradle-wrapper.jar is a Git LFS pointer — downloading real JAR..."
-            GRADLE_VERSION=$(grep -oP '(?<=gradle-)\d+\.\d+(\.\d+)?(?=-)' gradle/wrapper/gradle-wrapper.properties)
-            echo "Gradle version detected: $GRADLE_VERSION"
-            curl -fsSL \
-              "https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}/gradle/wrapper/gradle-wrapper.jar" \
-              -o gradle/wrapper/gradle-wrapper.jar \
-            || curl -fsSL \
-              "https://github.com/gradle/gradle/releases/download/v${GRADLE_VERSION}/gradle-${GRADLE_VERSION}-wrapper.jar" \
-              -o gradle/wrapper/gradle-wrapper.jar \
-            || (
-              echo "Downloading via Gradle services..."
-              curl -fsSL \
-                "https://services.gradle.org/versions/all" \
-                | python3 -c "import sys,json; data=json.load(sys.stdin); [print(v['wrapperChecksumUrl']) for v in data if v.get('version')=='${GRADLE_VERSION}']" \
-                | head -1 \
-                | xargs -I{} echo "Checksum URL: {}"
-              # آخر محاولة: نسخة ثابتة من GitHub Actions cache
-              curl -fsSL \
-                "https://github.com/nicowillis/gradle-wrapper-jar/releases/latest/download/gradle-wrapper.jar" \
-                -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null \
-              || true
-            )
-            echo "✅ New JAR size: $(wc -c < gradle/wrapper/gradle-wrapper.jar) bytes"
-          else
-            echo "✅ gradle-wrapper.jar is valid ($JAR_SIZE bytes)"
-          fi
-
       - uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JAVA_VERSION }}
@@ -113,28 +81,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. إصلاح gradle-wrapper.jar
-      - name: Fix Gradle Wrapper JAR
-        run: |
-          JAR_SIZE=$(wc -c < gradle/wrapper/gradle-wrapper.jar)
-          echo "Current JAR size: $JAR_SIZE bytes"
-          if [ "$JAR_SIZE" -lt 10000 ]; then
-            echo "⚠️  gradle-wrapper.jar is a Git LFS pointer — downloading real JAR..."
-            GRADLE_VERSION=$(grep -oP '(?<=gradle-)\d+\.\d+(\.\d+)?(?=-)' gradle/wrapper/gradle-wrapper.properties)
-            echo "Gradle version detected: $GRADLE_VERSION"
-            curl -fsSL \
-              "https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}/gradle/wrapper/gradle-wrapper.jar" \
-              -o gradle/wrapper/gradle-wrapper.jar \
-            || curl -fsSL \
-              "https://github.com/nicowillis/gradle-wrapper-jar/releases/latest/download/gradle-wrapper.jar" \
-              -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null \
-            || true
-            echo "✅ New JAR size: $(wc -c < gradle/wrapper/gradle-wrapper.jar) bytes"
-          else
-            echo "✅ gradle-wrapper.jar is valid ($JAR_SIZE bytes)"
-          fi
-
-      # 3. تثبيت Java
+      # 2. تثبيت Java
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -142,14 +89,19 @@ jobs:
           distribution: temurin
           cache: gradle
 
-      # 4. تثبيت NDK + CMake تلقائياً
+      # 3. تثبيت NDK + CMake تلقائياً
       - name: Install NDK & CMake
         run: |
           echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
             "ndk;${{ env.NDK_VERSION }}" \
             "cmake;${{ env.CMAKE_VERSION }}"
 
-      # 5. Cache لمخرجات FreeRDP المُجمَّعة
+      # 4. Cache لمخرجات FreeRDP المُجمَّعة
+      #    المفتاح يتغير فقط إذا تغيّر:
+      #      - إصدار FreeRDP (FREERDP_TAG)
+      #      - إصدار NDK
+      #      - ملف CMakeLists.txt أو hexrdp_jni.c
+      #    → في أي حالة أخرى يُستخدم الـ cache مباشرة (ثوانٍ لا دقائق)
       - name: Restore FreeRDP build cache
         id: freerdp-cache
         uses: actions/cache@v4
@@ -160,7 +112,9 @@ jobs:
           key: freerdp-${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}-${{ hashFiles('app/src/main/cpp/CMakeLists.txt', 'app/src/main/cpp/hexrdp_jni.c') }}
           restore-keys: freerdp-${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}-
 
-      # 6. سحب FreeRDP مباشرة (git clone)
+      # 5. سحب FreeRDP مباشرة (git clone) — لا submodule، لا جهاز محلي
+      #    يُشغَّل دائماً لأن الـ clone مطلوب لملفات الـ headers
+      #    حتى لو الـ cache موجود (CMake يحتاج headers وقت الإعداد)
       - name: Clone FreeRDP source
         run: |
           if [ ! -d "${{ env.FREERDP_PATH }}/.git" ]; then
@@ -177,6 +131,23 @@ jobs:
             echo "✅ FreeRDP already present"
           fi
 
+      # 5.5 بناء OpenSSL لكل ABI مستهدف باستخدام سكربت FreeRDP الرسمي نفسه
+      #     (scripts/android-build-openssl.sh) — هذا هو نفس السكربت الذي
+      #     يستخدمه مشروع FreeRDP الأصلي في خط أنابيب أندرويد الخاص به،
+      #     فهو يبني OpenSSL مضبوطاً بنفس flags/target الذي يتوقعه
+      #     find_package(OpenSSL) داخل FreeRDP لاحقاً. يجب أن يأتي بعد
+      #     استنساخ FreeRDP لأن السكربت موجود داخل مصدرها.
+      - name: Build Android OpenSSL (via FreeRDP script)
+        run: |
+          NDK_PATH="$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}"
+          OPENSSL_DST="$RUNNER_TEMP/android-openssl"
+          chmod +x "${{ env.FREERDP_PATH }}/scripts/android-build-openssl.sh"
+          "${{ env.FREERDP_PATH }}/scripts/android-build-openssl.sh" \
+            --ndk "$NDK_PATH" \
+            --dst "$OPENSSL_DST" \
+            --arch arm64-v8a,x86_64
+          echo "ANDROID_OPENSSL_ROOT=$OPENSSL_DST" >> "$GITHUB_ENV"
+
       - name: Log build plan
         run: |
           if [ "${{ steps.freerdp-cache.outputs.cache-hit }}" == "true" ]; then
@@ -185,13 +156,13 @@ jobs:
             echo "🔨 Cache MISS — سيُبنى FreeRDP من المصدر (30-60 دقيقة، مرة واحدة فقط)"
           fi
 
-      # 7. بناء APK
+      # 6. بناء APK
       - name: Build Debug APK
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 
-      # 8. رفع الـ APK كـ artifact
+      # 7. رفع الـ APK كـ artifact
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -200,6 +171,7 @@ jobs:
           retention-days: 14
 
   # ── Release (APK موقّع + GitHub Release) ────────────────────────
+  # يُشغَّل تلقائياً فقط عند push tag مثل: git tag v1.0.0 && git push --tags
   release:
     name: Release
     runs-on: ubuntu-latest
@@ -209,17 +181,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Fix Gradle Wrapper JAR
-        run: |
-          JAR_SIZE=$(wc -c < gradle/wrapper/gradle-wrapper.jar)
-          if [ "$JAR_SIZE" -lt 10000 ]; then
-            GRADLE_VERSION=$(grep -oP '(?<=gradle-)\d+\.\d+(\.\d+)?(?=-)' gradle/wrapper/gradle-wrapper.properties)
-            curl -fsSL \
-              "https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}/gradle/wrapper/gradle-wrapper.jar" \
-              -o gradle/wrapper/gradle-wrapper.jar \
-            || true
-          fi
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -255,10 +216,23 @@ jobs:
               ${{ env.FREERDP_PATH }}
           fi
 
+      - name: Build Android OpenSSL (via FreeRDP script)
+        run: |
+          NDK_PATH="$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}"
+          OPENSSL_DST="$RUNNER_TEMP/android-openssl"
+          chmod +x "${{ env.FREERDP_PATH }}/scripts/android-build-openssl.sh"
+          "${{ env.FREERDP_PATH }}/scripts/android-build-openssl.sh" \
+            --ndk "$NDK_PATH" \
+            --dst "$OPENSSL_DST" \
+            --arch arm64-v8a,x86_64
+          echo "ANDROID_OPENSSL_ROOT=$OPENSSL_DST" >> "$GITHUB_ENV"
+
+      # فك تشفير الـ keystore من الـ Secret
       - name: Decode keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ runner.temp }}/release.jks
 
+      # بناء APK موقّع
       - name: Build Release APK
         run: |
           chmod +x gradlew
@@ -274,6 +248,7 @@ jobs:
           mv app/build/outputs/apk/release/app-release.apk \
              app/build/outputs/apk/release/HexRDP-${{ github.ref_name }}.apk
 
+      # نشر تلقائي على GitHub Releases
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
