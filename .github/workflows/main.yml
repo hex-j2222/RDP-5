@@ -41,6 +41,7 @@ env:
   NDK_VERSION:    "26.3.11579264"
   CMAKE_VERSION:  "3.22.1"
   JAVA_VERSION:   "17"
+  GRADLE_VERSION: "8.7"
   FREERDP_TAG:    "3.5.1"
   FREERDP_PATH:   "app/src/main/cpp/FreeRDP"
 
@@ -59,6 +60,18 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
           cache: gradle
+
+      # يولّد gradlew + gradle-wrapper.jar + gradle-wrapper.properties
+      # تلقائياً إن كانت غائبة أو غير مكتملة في الريبو
+      - name: Generate Gradle Wrapper (if missing)
+        run: |
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "⚠️ gradle-wrapper.jar غير موجود أو فارغ — يتم توليده تلقائياً"
+            which gradle >/dev/null 2>&1 || (sudo apt-get update -y && sudo apt-get install -y gradle)
+            gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }} --distribution-type all
+          else
+            echo "✅ gradle-wrapper.jar موجود"
+          fi
 
       - run: chmod +x gradlew
       - run: ./gradlew lint --no-daemon
@@ -88,6 +101,17 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
           cache: gradle
+
+      # يولّد ملفات الـ wrapper تلقائياً إن كانت غائبة أو معطوبة
+      - name: Generate Gradle Wrapper (if missing)
+        run: |
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "⚠️ gradle-wrapper.jar غير موجود أو فارغ — يتم توليده تلقائياً"
+            which gradle >/dev/null 2>&1 || (sudo apt-get update -y && sudo apt-get install -y gradle)
+            gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }} --distribution-type all
+          else
+            echo "✅ gradle-wrapper.jar موجود"
+          fi
 
       # 3. تثبيت NDK + CMake تلقائياً
       - name: Install NDK & CMake
@@ -171,6 +195,16 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
           cache: gradle
+
+      - name: Generate Gradle Wrapper (if missing)
+        run: |
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "⚠️ gradle-wrapper.jar غير موجود أو فارغ — يتم توليده تلقائياً"
+            which gradle >/dev/null 2>&1 || (sudo apt-get update -y && sudo apt-get install -y gradle)
+            gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }} --distribution-type all
+          else
+            echo "✅ gradle-wrapper.jar موجود"
+          fi
 
       - name: Install NDK & CMake
         run: |
