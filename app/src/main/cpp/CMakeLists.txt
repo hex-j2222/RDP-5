@@ -3,21 +3,22 @@ project(hexrdp_native)
 
 # ════════════════════════════════════════════════════════════════════════
 # aFreeRDP / FreeRDP native bridge
-#
-# This builds a thin JNI bridge (hexrdp_jni.c) against the official FreeRDP
-# client library, checked out as a git submodule at
-# `app/src/main/cpp/FreeRDP` (see SETUP.md in this directory for the exact
-# `git submodule add` command).
-#
-# This file is NOT built by Anthropic's sandboxed build environment — it has
-# no internet access and cannot run the NDK toolchain or fetch the FreeRDP
-# source. It is provided ready-to-build on your own machine, where Android
-# Studio + the NDK + CMake are installed normally. See SETUP.md for the
-# step-by-step local build instructions.
 # ════════════════════════════════════════════════════════════════════════
 
 set(CMAKE_C_STANDARD 11)
 set(FREERDP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/FreeRDP)
+
+# ── تحديد مسار OpenSSL لكل ABI ──────────────────────────────────────────
+# ANDROID_OPENSSL_ROOT يُمرَّر من build.gradle.kts (قيمته مجلد يحوي
+# openssl-arm64-v8a/ و openssl-x86_64/ وما إلى ذلك).
+# نستخدم ANDROID_ABI (يضبطه NDK toolchain تلقائياً) لاختيار المسار الصحيح.
+if(DEFINED ANDROID_OPENSSL_ROOT AND NOT ANDROID_OPENSSL_ROOT STREQUAL "")
+    set(OPENSSL_ROOT_DIR "${ANDROID_OPENSSL_ROOT}/openssl-${ANDROID_ABI}")
+    message(STATUS "HexRDP: Using OpenSSL from ${OPENSSL_ROOT_DIR}")
+    set(OPENSSL_INCLUDE_DIR "${OPENSSL_ROOT_DIR}/include")
+    set(OPENSSL_CRYPTO_LIBRARY "${OPENSSL_ROOT_DIR}/lib/libcrypto.a")
+    set(OPENSSL_SSL_LIBRARY    "${OPENSSL_ROOT_DIR}/lib/libssl.a")
+endif()
 
 # Only build the native bridge if the FreeRDP submodule has actually been
 # checked out. This lets the rest of the Gradle project (VNC, SSH, pure-
