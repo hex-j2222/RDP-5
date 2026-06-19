@@ -1,0 +1,4 @@
+[submodule "app/src/main/cpp/FreeRDP"]
+	path = app/src/main/cpp/FreeRDP
+	url = https://github.com/FreeRDP/FreeRDP.git
+	branch = stable-3
