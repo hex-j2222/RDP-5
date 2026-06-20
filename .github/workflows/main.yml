@@ -174,6 +174,16 @@ jobs:
             echo "✅ FreeRDP already present"
           fi
 
+      # patch FreeRDP: تحويل find_package(SWScale REQUIRED) إلى QUIET حتى لا يفشل على Android
+      - name: Patch FreeRDP for Android
+        run: |
+          LIBFREERDP_CMAKE="${{ github.workspace }}/${{ env.FREERDP_PATH }}/libfreerdp/CMakeLists.txt"
+          # السطر 84: find_package(SWScale REQUIRED) → find_package(SWScale QUIET)
+          sed -i 's/find_package(SWScale REQUIRED)/find_package(SWScale QUIET)/g' "$LIBFREERDP_CMAKE"
+          # تأكيد التعديل
+          grep -n "SWScale" "$LIBFREERDP_CMAKE"
+          echo "✅ FreeRDP patched"
+
       # 7. Cache لـ OpenSSL المُجمَّع (يُبنى مرة واحدة لكل إصدار NDK)
       - name: Restore OpenSSL build cache
         id: openssl-cache
@@ -383,6 +393,16 @@ jobs:
               https://github.com/FreeRDP/FreeRDP.git \
               ${{ env.FREERDP_PATH }}
           fi
+
+      # patch FreeRDP: تحويل find_package(SWScale REQUIRED) إلى QUIET حتى لا يفشل على Android
+      - name: Patch FreeRDP for Android
+        run: |
+          LIBFREERDP_CMAKE="${{ github.workspace }}/${{ env.FREERDP_PATH }}/libfreerdp/CMakeLists.txt"
+          # السطر 84: find_package(SWScale REQUIRED) → find_package(SWScale QUIET)
+          sed -i 's/find_package(SWScale REQUIRED)/find_package(SWScale QUIET)/g' "$LIBFREERDP_CMAKE"
+          # تأكيد التعديل
+          grep -n "SWScale" "$LIBFREERDP_CMAKE"
+          echo "✅ FreeRDP patched"
 
       - name: Restore OpenSSL build cache
         id: openssl-cache
