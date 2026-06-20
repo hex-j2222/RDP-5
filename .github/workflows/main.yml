@@ -142,12 +142,16 @@ jobs:
           distribution: temurin
           cache: gradle
 
-      # 4. تثبيت NDK + CMake تلقائياً
+      # 4. تثبيت NDK + CMake وتثبيت الإصدار لمنع Gradle من اختيار NDK أحدث
       - name: Install NDK & CMake
         run: |
           echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
             "ndk;${{ env.NDK_VERSION }}" \
             "cmake;${{ env.CMAKE_VERSION }}"
+          # تثبيت إصدار NDK في local.properties حتى لا يختار Gradle NDK آخر
+          echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> local.properties
+          # تصدير ANDROID_NDK_ROOT لكل الـ steps اللاحقة
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
 
       # 5. تثبيت تبعيات البناء (make, perl) – قد تكون مثبتة مسبقاً لكن للتأكيد
       - name: Install build dependencies
@@ -297,8 +301,9 @@ jobs:
       - name: Build Debug APK
         run: |
           chmod +x gradlew
+          # ANDROID_OPENSSL_ROOT مُعيَّن في $GITHUB_ENV من step سابق،
+          # Gradle يقرأه تلقائياً عبر System.getenv() في build.gradle.kts
           ./gradlew assembleDebug \
-            -DANDROID_OPENSSL_ROOT=$ANDROID_OPENSSL_ROOT \
             --no-daemon --stacktrace
 
       # 12. رفع الـ APK كـ artifact
@@ -343,6 +348,8 @@ jobs:
           echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
             "ndk;${{ env.NDK_VERSION }}" \
             "cmake;${{ env.CMAKE_VERSION }}"
+          echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> local.properties
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
 
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y make perl
@@ -467,7 +474,6 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease \
-            -DANDROID_OPENSSL_ROOT=$ANDROID_OPENSSL_ROOT \
             -Pandroid.injected.signing.store.file=${{ runner.temp }}/release.jks \
             -Pandroid.injected.signing.store.password=${{ secrets.STORE_PASSWORD }} \
             -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
