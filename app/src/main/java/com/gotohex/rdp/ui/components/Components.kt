@@ -14,6 +14,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Label
+import androidx.compose.material.icons.automirrored.outlined.ScreenShare
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -359,7 +361,7 @@ fun RdpProfileCard(
                         if (profile.gatewayEnabled) InfoChip(Icons.Outlined.Dns, stringResource(R.string.rd_gateway))
                     }
                     ProtocolType.VNC -> {
-                        InfoChip(Icons.Outlined.ScreenShare, "VNC")
+                        InfoChip(ScreenShare, "VNC")
                         if (profile.vncViewOnly) InfoChip(Icons.Outlined.Visibility, stringResource(R.string.vnc_view_only))
                     }
                     ProtocolType.SSH -> {
@@ -658,7 +660,7 @@ fun ProfileFormDialog(
                     enabled  = profile == null // changing protocol on an existing profile would invalidate saved fields silently; keep it simple and lock it after creation
                 )
 
-                SpaceTextField(name, { name = it }, stringResource(R.string.connection_name), Icons.Outlined.Label)
+                SpaceTextField(name, { name = it }, stringResource(R.string.connection_name), Label)
                 SpaceTextField(host, { host = it }, stringResource(R.string.host_ip), Icons.Outlined.Computer)
                 SpaceTextField(
                     port, { port = it.filter(Char::isDigit); portTouchedByUser = true },
@@ -914,7 +916,7 @@ private fun ProtocolSelector(
 
 fun protocolIcon(type: ProtocolType): androidx.compose.ui.graphics.vector.ImageVector = when (type) {
     ProtocolType.RDP -> Icons.Outlined.DesktopWindows
-    ProtocolType.VNC -> Icons.Outlined.ScreenShare
+    ProtocolType.VNC -> ScreenShare
     ProtocolType.SSH -> Icons.Outlined.Terminal
 }
 
