@@ -601,4 +601,3 @@ jobs:
           files: app/build/outputs/apk/release/HexRDP-${{ github.ref_name }}.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
