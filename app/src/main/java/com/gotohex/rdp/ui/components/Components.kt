@@ -14,8 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Label
-import androidx.compose.material.icons.automirrored.outlined.ScreenShare
+import androidx.compose.material.icons.automirrored.outlined.ScreenShare as ScreenShareMirrored
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -361,7 +360,7 @@ fun RdpProfileCard(
                         if (profile.gatewayEnabled) InfoChip(Icons.Outlined.Dns, stringResource(R.string.rd_gateway))
                     }
                     ProtocolType.VNC -> {
-                        InfoChip(ScreenShare, "VNC")
+                        InfoChip(ScreenShareMirrored, "VNC")
                         if (profile.vncViewOnly) InfoChip(Icons.Outlined.Visibility, stringResource(R.string.vnc_view_only))
                     }
                     ProtocolType.SSH -> {
@@ -660,7 +659,8 @@ fun ProfileFormDialog(
                     enabled  = profile == null // changing protocol on an existing profile would invalidate saved fields silently; keep it simple and lock it after creation
                 )
 
-                SpaceTextField(name, { name = it }, stringResource(R.string.connection_name), Label)
+                @Suppress("DEPRECATION")
+                SpaceTextField(name, { name = it }, stringResource(R.string.connection_name), Icons.Outlined.Label)
                 SpaceTextField(host, { host = it }, stringResource(R.string.host_ip), Icons.Outlined.Computer)
                 SpaceTextField(
                     port, { port = it.filter(Char::isDigit); portTouchedByUser = true },
@@ -916,7 +916,7 @@ private fun ProtocolSelector(
 
 fun protocolIcon(type: ProtocolType): androidx.compose.ui.graphics.vector.ImageVector = when (type) {
     ProtocolType.RDP -> Icons.Outlined.DesktopWindows
-    ProtocolType.VNC -> ScreenShare
+    ProtocolType.VNC -> ScreenShareMirrored
     ProtocolType.SSH -> Icons.Outlined.Terminal
 }
 
