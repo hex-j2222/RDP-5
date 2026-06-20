@@ -41,22 +41,13 @@ android {
         // الحل: نمرر جذر OpenSSL المخصص لأندرويد (مبني مسبقاً في CI عبر
         // سكربت FreeRDP الرسمي android-build-openssl.sh، انظر main.yml)
         // إلى CMake عبر متغير البيئة ANDROID_OPENSSL_ROOT.
+        // نمرر ANDROID_OPENSSL_ROOT فقط — CMakeLists.txt يحتسب المسار الكامل لكل ABI.
+        // FreeRDP يُبنى كـ prebuilt منفصل في CI (انظر main.yml)، ولا يُبنى داخل Gradle.
         val androidOpenSslRoot = System.getenv("ANDROID_OPENSSL_ROOT")
         if (!androidOpenSslRoot.isNullOrBlank()) {
             externalNativeBuild {
                 cmake {
-                    // نمرر ANDROID_OPENSSL_ROOT للـ CMakeLists.txt ليحسب المسار لكل ABI.
-                    // نُمرّر أيضاً OPENSSL_* مباشرةً كـ cmake cache entries لضمان أن
-                    // winpr و libfreerdp يجدانها حتى بعد إعادة ضبط toolchain لـ find modes.
-                    // ${ANDROID_ABI} لا يُعيَّن هنا (وقت Gradle)، لكن CMakeLists.txt
-                    // يحتسبه من ANDROID_ABI المُعيَّن من NDK toolchain وقت cmake configure.
                     arguments += "-DANDROID_OPENSSL_ROOT=$androidOpenSslRoot"
-                    // تعطيل FFmpeg من Gradle كطبقة أمان إضافية.
-                    // WITH_DSP_FFMPEG هو المتغير الحقيقي الذي يتحكم في
-                    // find_package(SWScale REQUIRED) داخل libfreerdp/CMakeLists.txt
-                    arguments += "-DWITH_FFMPEG=OFF"
-                    arguments += "-DWITH_DSP_FFMPEG=OFF"
-                    arguments += "-DWITH_VIDEO_FFMPEG=OFF"
                 }
             }
         }
