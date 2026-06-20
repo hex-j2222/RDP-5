@@ -9,6 +9,8 @@ plugins {
 android {
     namespace = "com.gotohex.rdp"
     compileSdk = 35
+    // تثبيت إصدار NDK صراحةً — يمنع Gradle من اختيار أحدث NDK مثبّت على الجهاز/CI
+    ndkVersion = "26.3.11579264"
 
     defaultConfig {
         applicationId = "com.gotohex.rdp"
