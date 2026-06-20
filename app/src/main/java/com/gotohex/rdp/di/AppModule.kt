@@ -25,7 +25,7 @@ object AppModule {
             HexRdpDatabase.DATABASE_NAME
         )
             .addMigrations(MIGRATION_1_2)
-            .fallbackToDestructiveMigration()
+            .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
 
     @Provides
