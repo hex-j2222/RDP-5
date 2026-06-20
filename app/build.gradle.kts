@@ -47,7 +47,6 @@ android {
                 cmake {
                     // نمرر المجلد الأب؛ CMakeLists.txt يختار openssl-${ANDROID_ABI}
                     arguments += "-DANDROID_OPENSSL_ROOT=$androidOpenSslRoot"
-                    arguments += "-DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH"
                 }
             }
         }
