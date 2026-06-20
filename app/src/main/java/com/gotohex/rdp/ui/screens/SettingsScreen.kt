@@ -12,6 +12,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Send
+import androidx.compose.material.icons.automirrored.outlined.VolumeOff
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -60,7 +64,7 @@ fun SettingsScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = { navController.popBackStack() }) {
-                            Icon(Icons.Default.ArrowBack, null, tint = CometTail)
+                            Icon(ArrowBack, null, tint = CometTail)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -148,7 +152,7 @@ fun SettingsScreen(
                 )
 
                 SettingsToggle(
-                    icon = if (settings.soundEnabled) Icons.Outlined.VolumeUp else Icons.Outlined.VolumeOff,
+                    icon = if (settings.soundEnabled) VolumeUp else VolumeOff,
                     title = stringResource(R.string.sound_effects),
                     subtitle = stringResource(R.string.sound_effects_desc),
                     checked = settings.soundEnabled,
@@ -224,7 +228,7 @@ fun SettingsScreen(
                 SettingsSection(title = stringResource(R.string.developer))
 
                 SettingsItem(
-                    icon = Icons.Outlined.Send,
+                    icon = Send,
                     title = "Telegram",
                     subtitle = stringResource(R.string.developer_telegram),
                     onClick = {
