@@ -86,7 +86,7 @@ fun TerminalScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     IconButton(onClick = {
                         coroutineScope.launch {
-                            val clip = clipboard.getClip()
+                            val clip = clipboard.getClipEntry()
                             val text = clip?.clipData?.getItemAt(0)?.text?.toString()
                             text?.let { onSendText(it) }
                         }
