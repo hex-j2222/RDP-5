@@ -15,9 +15,25 @@ set(FREERDP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/FreeRDP)
 if(DEFINED ANDROID_OPENSSL_ROOT AND NOT ANDROID_OPENSSL_ROOT STREQUAL "")
     set(OPENSSL_ROOT_DIR "${ANDROID_OPENSSL_ROOT}/openssl-${ANDROID_ABI}")
     message(STATUS "HexRDP: Using OpenSSL from ${OPENSSL_ROOT_DIR}")
-    set(OPENSSL_INCLUDE_DIR "${OPENSSL_ROOT_DIR}/include")
-    set(OPENSSL_CRYPTO_LIBRARY "${OPENSSL_ROOT_DIR}/lib/libcrypto.a")
-    set(OPENSSL_SSL_LIBRARY    "${OPENSSL_ROOT_DIR}/lib/libssl.a")
+
+    # يجب تعيين هذه المتغيرات كـ CACHE قبل add_subdirectory(FreeRDP)
+    # حتى يجدها winpr/CMakeLists.txt عند استدعاء find_package(OpenSSL)
+    # بدون CACHE يُعيَّن المتغير في scope الحالي فقط ولا يُرث من FreeRDP
+    set(OPENSSL_ROOT_DIR       "${OPENSSL_ROOT_DIR}"                        CACHE PATH   "" FORCE)
+    set(OPENSSL_INCLUDE_DIR    "${OPENSSL_ROOT_DIR}/include"                CACHE PATH   "" FORCE)
+    set(OPENSSL_CRYPTO_LIBRARY "${OPENSSL_ROOT_DIR}/lib/libcrypto.a"        CACHE FILEPATH "" FORCE)
+    set(OPENSSL_SSL_LIBRARY    "${OPENSSL_ROOT_DIR}/lib/libssl.a"           CACHE FILEPATH "" FORCE)
+
+    # تأكيد أن OpenSSL موجود فعلاً قبل المتابعة
+    if(NOT EXISTS "${OPENSSL_CRYPTO_LIBRARY}")
+        message(FATAL_ERROR "HexRDP: libcrypto.a not found at ${OPENSSL_CRYPTO_LIBRARY}\n"
+                            "تأكد من تشغيل خطوة بناء OpenSSL في CI أولاً.")
+    endif()
+
+    # إضافة مسار include إلى CMAKE_FIND_ROOT_PATH حتى يجده find_package داخل FreeRDP
+    list(APPEND CMAKE_FIND_ROOT_PATH "${OPENSSL_ROOT_DIR}")
+    # السماح لـ find_package بالبحث في HOST و SYSROOT معاً
+    set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
 endif()
 
 # Only build the native bridge if the FreeRDP submodule has actually been
