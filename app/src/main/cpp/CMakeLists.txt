@@ -16,11 +16,14 @@ set(FREERDP_DIR    ${CMAKE_CURRENT_SOURCE_DIR}/FreeRDP)
 set(FREERDP_PREBUILT_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/freerdp-prebuilt)
 set(FREERDP_ABI_DIR ${FREERDP_PREBUILT_ROOT}/${ANDROID_ABI})
 
-# OpenSSL prebuilt
+# OpenSSL prebuilt — مطلوب فقط عندما يكون FreeRDP prebuilt موجوداً
+# في CI: ANDROID_OPENSSL_ROOT مُصدَّر قبل gradlew
+# في البناء المحلي بدون FreeRDP: النظام يستخدم Kotlin fallback ولا حاجة لـ OpenSSL
 if(DEFINED ANDROID_OPENSSL_ROOT AND NOT ANDROID_OPENSSL_ROOT STREQUAL "")
     set(OPENSSL_ABI_DIR "${ANDROID_OPENSSL_ROOT}/openssl-${ANDROID_ABI}")
 else()
-    message(FATAL_ERROR "ANDROID_OPENSSL_ROOT is required")
+    set(OPENSSL_ABI_DIR "")
+    message(STATUS "HexRDP: ANDROID_OPENSSL_ROOT not set — OpenSSL skipped (Kotlin fallback active)")
 endif()
 
 # ── الحالة 1: FreeRDP prebuilt موجود → بناء JNI bridge كامل ──────────
