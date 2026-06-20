@@ -9,31 +9,35 @@ set(CMAKE_C_STANDARD 11)
 set(FREERDP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/FreeRDP)
 
 # ── تحديد مسار OpenSSL لكل ABI ──────────────────────────────────────────
-# ANDROID_OPENSSL_ROOT يُمرَّر من build.gradle.kts (قيمته مجلد يحوي
-# openssl-arm64-v8a/ و openssl-x86_64/ وما إلى ذلك).
-# نستخدم ANDROID_ABI (يضبطه NDK toolchain تلقائياً) لاختيار المسار الصحيح.
+# ANDROID_OPENSSL_ROOT يُمرَّر من build.gradle.kts كـ -D argument.
+# نحسب المسار الكامل لكل ABI ثم نُعيّن OPENSSL_* كـ CACHE vars
+# حتى يجدها winpr و libfreerdp عند استدعاء find_package(OpenSSL).
+#
+# ملاحظة مهمة: NDK toolchain يُعيَّن بعد CMakeLists.txt ويُعيد ضبط
+# CMAKE_FIND_ROOT_PATH_MODE_PACKAGE. لذلك الحل الوحيد الموثوق هو تمرير
+# OPENSSL_CRYPTO_LIBRARY و OPENSSL_SSL_LIBRARY و OPENSSL_INCLUDE_DIR
+# مباشرةً كـ -D arguments من Gradle (انظر build.gradle.kts) — هذا يُدخلها
+# في cmake cache مباشرة قبل أي processing ويتجاوز مشكلة الـ toolchain.
 if(DEFINED ANDROID_OPENSSL_ROOT AND NOT ANDROID_OPENSSL_ROOT STREQUAL "")
-    set(OPENSSL_ROOT_DIR "${ANDROID_OPENSSL_ROOT}/openssl-${ANDROID_ABI}")
-    message(STATUS "HexRDP: Using OpenSSL from ${OPENSSL_ROOT_DIR}")
+    set(_OPENSSL_ABI_DIR "${ANDROID_OPENSSL_ROOT}/openssl-${ANDROID_ABI}")
+    message(STATUS "HexRDP: Using OpenSSL from ${_OPENSSL_ABI_DIR}")
 
-    # يجب تعيين هذه المتغيرات كـ CACHE قبل add_subdirectory(FreeRDP)
-    # حتى يجدها winpr/CMakeLists.txt عند استدعاء find_package(OpenSSL)
-    # بدون CACHE يُعيَّن المتغير في scope الحالي فقط ولا يُرث من FreeRDP
-    set(OPENSSL_ROOT_DIR       "${OPENSSL_ROOT_DIR}"                        CACHE PATH   "" FORCE)
-    set(OPENSSL_INCLUDE_DIR    "${OPENSSL_ROOT_DIR}/include"                CACHE PATH   "" FORCE)
-    set(OPENSSL_CRYPTO_LIBRARY "${OPENSSL_ROOT_DIR}/lib/libcrypto.a"        CACHE FILEPATH "" FORCE)
-    set(OPENSSL_SSL_LIBRARY    "${OPENSSL_ROOT_DIR}/lib/libssl.a"           CACHE FILEPATH "" FORCE)
-
-    # تأكيد أن OpenSSL موجود فعلاً قبل المتابعة
-    if(NOT EXISTS "${OPENSSL_CRYPTO_LIBRARY}")
-        message(FATAL_ERROR "HexRDP: libcrypto.a not found at ${OPENSSL_CRYPTO_LIBRARY}\n"
-                            "تأكد من تشغيل خطوة بناء OpenSSL في CI أولاً.")
+    # نتحقق من وجود الملف فعلاً قبل المتابعة
+    if(NOT EXISTS "${_OPENSSL_ABI_DIR}/lib/libcrypto.a")
+        message(FATAL_ERROR "HexRDP: libcrypto.a not found at ${_OPENSSL_ABI_DIR}/lib/libcrypto.a")
     endif()
 
-    # إضافة مسار include إلى CMAKE_FIND_ROOT_PATH حتى يجده find_package داخل FreeRDP
-    list(APPEND CMAKE_FIND_ROOT_PATH "${OPENSSL_ROOT_DIR}")
-    # السماح لـ find_package بالبحث في HOST و SYSROOT معاً
-    set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
+    # تعيين OPENSSL_ROOT_DIR فقط — find_package(OpenSSL) سيشتق منه الباقي
+    # تعيينها كـ CACHE INTERNAL تجعلها مرئية لكل subdirectory
+    set(OPENSSL_ROOT_DIR       "${_OPENSSL_ABI_DIR}"                    CACHE INTERNAL "")
+    set(OPENSSL_INCLUDE_DIR    "${_OPENSSL_ABI_DIR}/include"            CACHE INTERNAL "")
+    set(OPENSSL_CRYPTO_LIBRARY "${_OPENSSL_ABI_DIR}/lib/libcrypto.a"    CACHE INTERNAL "")
+    set(OPENSSL_SSL_LIBRARY    "${_OPENSSL_ABI_DIR}/lib/libssl.a"       CACHE INTERNAL "")
+
+    # إضافة المسار إلى CMAKE_PREFIX_PATH (يعمل مع FIND_ROOT_PATH_MODE_PACKAGE=BOTH)
+    list(APPEND CMAKE_PREFIX_PATH "${_OPENSSL_ABI_DIR}")
+    # فرض وضع البحث لمنع NDK toolchain من تقييد find_package داخل sysroot فقط
+    set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH CACHE STRING "" FORCE)
 endif()
 
 # Only build the native bridge if the FreeRDP submodule has actually been
@@ -53,12 +57,21 @@ if(EXISTS "${FREERDP_DIR}/CMakeLists.txt")
     set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
     set(WITH_SAMPLE OFF CACHE BOOL "" FORCE)
     set(CHANNEL_URBDRC OFF CACHE BOOL "" FORCE)
+
+    # تعطيل FFmpeg بشكل كامل — libfreerdp/CMakeLists.txt يستدعي
+    # find_package(SWScale REQUIRED) عندما يكون WITH_FFMPEG مفعّلاً.
+    # SWScale لا يتوفر في NDK sysroot ويسبب فشل الـ build.
     set(WITH_FFMPEG OFF CACHE BOOL "" FORCE)
+    # منع أي استدعاء find_package لـ FFmpeg أو SWScale
+    set(CMAKE_DISABLE_FIND_PACKAGE_FFmpeg   TRUE CACHE BOOL "" FORCE)
+    set(CMAKE_DISABLE_FIND_PACKAGE_SWScale  TRUE CACHE BOOL "" FORCE)
+    set(CMAKE_DISABLE_FIND_PACKAGE_SWResample TRUE CACHE BOOL "" FORCE)
+    set(CMAKE_DISABLE_FIND_PACKAGE_AVCodec  TRUE CACHE BOOL "" FORCE)
+    set(CMAKE_DISABLE_FIND_PACKAGE_AVUtil   TRUE CACHE BOOL "" FORCE)
+    set(CMAKE_DISABLE_FIND_PACKAGE_AVFormat TRUE CACHE BOOL "" FORCE)
+
     set(WITH_CUPS OFF CACHE BOOL "" FORCE)
     set(WITH_PULSE OFF CACHE BOOL "" FORCE)
-    # يمنع ConfigOptions.cmake في FreeRDP من تشغيل find_package(PulseAudio)
-    # حتى كـ optional probe — على Android لا وجود لـ PulseAudio أساساً،
-    # فالنتيجة كانت تحذير CMake غير مؤثر على نجاح البناء، لكن إخفاؤه أنظف.
     set(CMAKE_DISABLE_FIND_PACKAGE_PulseAudio TRUE CACHE BOOL "" FORCE)
     set(WITH_X11 OFF CACHE BOOL "" FORCE)
     set(WITH_WAYLAND OFF CACHE BOOL "" FORCE)
