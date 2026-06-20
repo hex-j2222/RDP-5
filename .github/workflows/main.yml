@@ -308,46 +308,40 @@ jobs:
 
       # 11. بناء FreeRDP كـ prebuilt منفصل عبر cmake مباشرة
       # هذا يتجنب كل مشاكل add_subdirectory مع NDK toolchain
+      # 11. بناء FreeRDP باستخدام السكربت الرسمي المُدمَج في FreeRDP نفسه
+      # android-build-freerdp.sh يبني OpenSSL وكل التبعيات تلقائياً
+      # المكتبات تُوضع في client/Android/Studio/freeRDPCore/src/main/jniLibs/
       - name: Build FreeRDP prebuilt
         if: steps.freerdp-cache.outputs.cache-hit != 'true'
         run: |
-          OPENSSL_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}
-          PREBUILT_ROOT=${{ github.workspace }}/app/src/main/cpp/freerdp-prebuilt
           FREERDP_SRC=${{ github.workspace }}/${{ env.FREERDP_PATH }}
-          API=26
+          PREBUILT_ROOT=${{ github.workspace }}/app/src/main/cpp/freerdp-prebuilt
 
+          sudo apt-get install -y make perl nasm
+
+          # تشغيل السكربت الرسمي — يبني كل شيء تلقائياً
+          cd "$FREERDP_SRC"
+          bash ./scripts/android-build-freerdp.sh \
+            --ndk "$ANDROID_NDK_ROOT" \
+            --sdk "$ANDROID_SDK_ROOT"
+
+          # نسخ المكتبات إلى مجلد prebuilt الذي يتوقعه CMakeLists.txt
+          JNILIBS="$FREERDP_SRC/client/Android/Studio/freeRDPCore/src/main/jniLibs"
           for ABI in arm64-v8a x86_64; do
-            echo "🔨 Building FreeRDP for $ABI ..."
-            OUT="$PREBUILT_ROOT/$ABI"
-            BUILD_DIR="/tmp/freerdp-build-$ABI"
-            mkdir -p "$OUT" "$BUILD_DIR"
-
-            cmake -S "$FREERDP_SRC" -B "$BUILD_DIR" \
-              -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" \
-              -DANDROID_ABI="$ABI" \
-              -DANDROID_PLATFORM="android-$API" \
-              -DCMAKE_BUILD_TYPE=MinSizeRel \
-              -DCMAKE_INSTALL_PREFIX="$OUT" \
-              -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT/openssl-$ABI" \
-              -DOPENSSL_INCLUDE_DIR="$OPENSSL_ROOT/openssl-$ABI/include" \
-              -DOPENSSL_CRYPTO_LIBRARY="$OPENSSL_ROOT/openssl-$ABI/lib/libcrypto.a" \
-              -DOPENSSL_SSL_LIBRARY="$OPENSSL_ROOT/openssl-$ABI/lib/libssl.a" \
-              -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
-              -DWITH_CLIENT=ON -DWITH_SERVER=OFF -DWITH_SHADOW=OFF \
-              -DWITH_PLATFORM_SERVER=OFF -DWITH_SAMPLE=OFF \
-              -DWITH_FFMPEG=OFF -DWITH_DSP_FFMPEG=OFF -DWITH_VIDEO_FFMPEG=OFF \
-              -DWITH_CUPS=OFF -DWITH_PULSE=OFF -DWITH_X11=OFF -DWITH_WAYLAND=OFF \
-              -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=OFF \
-              -DENABLE_WARNINGS_ALL=OFF -DENABLE_WARNINGS_ERROR=OFF \
-              "-DCMAKE_C_FLAGS_INIT=-w" "-DCMAKE_CXX_FLAGS_INIT=-w" \
-              -GNinja
-
-            cmake --build "$BUILD_DIR" --parallel $(nproc)
-            cmake --install "$BUILD_DIR"
-            echo "✅ Done $ABI"
+            mkdir -p "$PREBUILT_ROOT/$ABI/lib"
+            mkdir -p "$PREBUILT_ROOT/$ABI/include"
+            # نسخ الـ .so files
+            cp -f "$JNILIBS/$ABI/"*.so "$PREBUILT_ROOT/$ABI/lib/" 2>/dev/null || true
+            # نسخ الـ headers
+            cp -rf "$JNILIBS/$ABI/include/"* "$PREBUILT_ROOT/$ABI/include/" 2>/dev/null || true
+            # نسخ OpenSSL headers من مجلد البناء
+            OPENSSL_INCLUDE=$(find "$FREERDP_SRC" -path "*/openssl/include/openssl" -type d | head -1)
+            if [ -n "$OPENSSL_INCLUDE" ]; then
+              cp -rf "$(dirname $OPENSSL_INCLUDE)"/* "$PREBUILT_ROOT/$ABI/include/" 2>/dev/null || true
+            fi
+            ls -la "$PREBUILT_ROOT/$ABI/lib/" || true
           done
           echo "✅ FreeRDP prebuilt complete"
-
 
       # 12. بناء APK — Gradle يستخدم prebuilt libs مباشرة عبر CMakeLists.txt
       - name: Build Debug APK
@@ -537,40 +531,21 @@ jobs:
       - name: Build FreeRDP prebuilt
         if: steps.freerdp-cache-release.outputs.cache-hit != 'true'
         run: |
-          OPENSSL_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}
-          PREBUILT_ROOT=${{ github.workspace }}/app/src/main/cpp/freerdp-prebuilt
           FREERDP_SRC=${{ github.workspace }}/${{ env.FREERDP_PATH }}
-          API=26
+          PREBUILT_ROOT=${{ github.workspace }}/app/src/main/cpp/freerdp-prebuilt
 
+          sudo apt-get install -y make perl nasm
+
+          cd "$FREERDP_SRC"
+          bash ./scripts/android-build-freerdp.sh \
+            --ndk "$ANDROID_NDK_ROOT" \
+            --sdk "$ANDROID_SDK_ROOT"
+
+          JNILIBS="$FREERDP_SRC/client/Android/Studio/freeRDPCore/src/main/jniLibs"
           for ABI in arm64-v8a x86_64; do
-            echo "🔨 Building FreeRDP for $ABI ..."
-            OUT="$PREBUILT_ROOT/$ABI"
-            BUILD_DIR="/tmp/freerdp-build-$ABI"
-            mkdir -p "$OUT" "$BUILD_DIR"
-
-            cmake -S "$FREERDP_SRC" -B "$BUILD_DIR" \
-              -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" \
-              -DANDROID_ABI="$ABI" \
-              -DANDROID_PLATFORM="android-$API" \
-              -DCMAKE_BUILD_TYPE=MinSizeRel \
-              -DCMAKE_INSTALL_PREFIX="$OUT" \
-              -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT/openssl-$ABI" \
-              -DOPENSSL_INCLUDE_DIR="$OPENSSL_ROOT/openssl-$ABI/include" \
-              -DOPENSSL_CRYPTO_LIBRARY="$OPENSSL_ROOT/openssl-$ABI/lib/libcrypto.a" \
-              -DOPENSSL_SSL_LIBRARY="$OPENSSL_ROOT/openssl-$ABI/lib/libssl.a" \
-              -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
-              -DWITH_CLIENT=ON -DWITH_SERVER=OFF -DWITH_SHADOW=OFF \
-              -DWITH_PLATFORM_SERVER=OFF -DWITH_SAMPLE=OFF \
-              -DWITH_FFMPEG=OFF -DWITH_DSP_FFMPEG=OFF -DWITH_VIDEO_FFMPEG=OFF \
-              -DWITH_CUPS=OFF -DWITH_PULSE=OFF -DWITH_X11=OFF -DWITH_WAYLAND=OFF \
-              -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=OFF \
-              -DENABLE_WARNINGS_ALL=OFF -DENABLE_WARNINGS_ERROR=OFF \
-              "-DCMAKE_C_FLAGS_INIT=-w" "-DCMAKE_CXX_FLAGS_INIT=-w" \
-              -GNinja
-
-            cmake --build "$BUILD_DIR" --parallel $(nproc)
-            cmake --install "$BUILD_DIR"
-            echo "✅ Done $ABI"
+            mkdir -p "$PREBUILT_ROOT/$ABI/lib" "$PREBUILT_ROOT/$ABI/include"
+            cp -f "$JNILIBS/$ABI/"*.so "$PREBUILT_ROOT/$ABI/lib/" 2>/dev/null || true
+            cp -rf "$JNILIBS/$ABI/include/"* "$PREBUILT_ROOT/$ABI/include/" 2>/dev/null || true
           done
           echo "✅ FreeRDP prebuilt complete"
 
