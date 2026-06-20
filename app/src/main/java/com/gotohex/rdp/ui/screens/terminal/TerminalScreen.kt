@@ -18,8 +18,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
@@ -52,8 +53,9 @@ fun TerminalScreen(
     onDisconnect: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val coroutineScope = rememberCoroutineScope()
     var inputBuffer by remember { mutableStateOf("") }
 
     // Auto-scroll to bottom whenever new output arrives.
@@ -83,7 +85,11 @@ fun TerminalScreen(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     IconButton(onClick = {
-                        clipboard.getText()?.text?.let { onSendText(it) }
+                        coroutineScope.launch {
+                            val clip = clipboard.getClip()
+                            val text = clip?.clipData?.getItemAt(0)?.text?.toString()
+                            text?.let { onSendText(it) }
+                        }
                     }) {
                         Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = CometTail)
                     }
