@@ -8,7 +8,7 @@
 #   2. يُصلح gradle-wrapper.jar (Git LFS pointer → JAR حقيقي)
 #   3. يحمّل FreeRDP مباشرة من GitHub (git clone) إلى المكان الصحيح
 #   4. يثبّت NDK + CMake تلقائياً
-#   5. يبني OpenSSL لـ Android (arm64-v8a و x86_64) باستخدام سكربت FreeRDP
+#   5. يبني OpenSSL لـ Android (arm64-v8a و x86_64)
 #   6. يبني APK كامل (native + Kotlin) مع تمرير مسار OpenSSL
 #   7. يحفظ مخرجات FreeRDP و OpenSSL في cache → البناءات التالية سريعة جداً
 #
@@ -20,6 +20,12 @@
 #   KEY_ALIAS         → اسم الـ alias داخل الـ keystore
 #   KEY_PASSWORD      → كلمة مرور الـ key
 #   STORE_PASSWORD    → كلمة مرور الـ keystore
+# ══════════════════════════════════════════════════════════════════
+#
+# ── إصدارات المكتبات (محدّثة 2026-06-20) ─────────────────────────
+# NDK r27d LTS  → أكثر استقراراً مع Clang 17 لـ cross-compile
+# FreeRDP 3.24.2 → أحدث إصدار أمني مستقر مع تحسينات Android ضخمة
+# OpenSSL 3.5.6  → LTS حتى 2030، يصلح -Wcast-function-type-strict مع Clang 16+
 # ══════════════════════════════════════════════════════════════════
 
 name: HexRDP CI/CD
@@ -37,12 +43,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NDK_VERSION:    "26.3.11579264"
+  NDK_VERSION:    "27.3.13750724"    # r27d LTS — أحدث LTS (كان: 26.3.11579264 r26 LTS)
   CMAKE_VERSION:  "3.22.1"
   JAVA_VERSION:   "17"
-  FREERDP_TAG:    "3.5.1"
+  FREERDP_TAG:    "3.24.2"           # أحدث إصدار أمني مستقر (كان: 3.5.1)
   FREERDP_PATH:   "app/src/main/cpp/FreeRDP"
-  OPENSSL_BUILD_DIR: "app/src/main/cpp/openssl-build"   # مجمع مخرجات OpenSSL
+  OPENSSL_BUILD_DIR: "app/src/main/cpp/openssl-build"
+  OPENSSL_VERSION: "3.5.6"           # LTS حتى 2030 (كان: 3.3.2)
 
 # ──────────────────────────────────────────────────────────────────
 jobs:
@@ -54,7 +61,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # إصلاح gradle-wrapper.jar — Git LFS يخزّنه كـ pointer (97 bytes)
       - name: Fix Gradle Wrapper JAR
         run: |
           JAR_SIZE=$(wc -c < gradle/wrapper/gradle-wrapper.jar)
@@ -67,20 +73,9 @@ jobs:
               "https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}/gradle/wrapper/gradle-wrapper.jar" \
               -o gradle/wrapper/gradle-wrapper.jar \
             || curl -fsSL \
-              "https://github.com/gradle/gradle/releases/download/v${GRADLE_VERSION}/gradle-${GRADLE_VERSION}-wrapper.jar" \
-              -o gradle/wrapper/gradle-wrapper.jar \
-            || (
-              echo "Downloading via Gradle services..."
-              curl -fsSL \
-                "https://services.gradle.org/versions/all" \
-                | python3 -c "import sys,json; data=json.load(sys.stdin); [print(v['wrapperChecksumUrl']) for v in data if v.get('version')=='${GRADLE_VERSION}']" \
-                | head -1 \
-                | xargs -I{} echo "Checksum URL: {}"
-              curl -fsSL \
-                "https://github.com/nicowillis/gradle-wrapper-jar/releases/latest/download/gradle-wrapper.jar" \
-                -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null \
-              || true
-            )
+              "https://github.com/nicowillis/gradle-wrapper-jar/releases/latest/download/gradle-wrapper.jar" \
+              -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null \
+            || true
             echo "✅ New JAR size: $(wc -c < gradle/wrapper/gradle-wrapper.jar) bytes"
           else
             echo "✅ gradle-wrapper.jar is valid ($JAR_SIZE bytes)"
@@ -117,11 +112,8 @@ jobs:
       - name: Fix Gradle Wrapper JAR
         run: |
           JAR_SIZE=$(wc -c < gradle/wrapper/gradle-wrapper.jar)
-          echo "Current JAR size: $JAR_SIZE bytes"
           if [ "$JAR_SIZE" -lt 10000 ]; then
-            echo "⚠️  gradle-wrapper.jar is a Git LFS pointer — downloading real JAR..."
             GRADLE_VERSION=$(grep -oP '(?<=gradle-)\d+\.\d+(\.\d+)?(?=-)' gradle/wrapper/gradle-wrapper.properties)
-            echo "Gradle version detected: $GRADLE_VERSION"
             curl -fsSL \
               "https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}/gradle/wrapper/gradle-wrapper.jar" \
               -o gradle/wrapper/gradle-wrapper.jar \
@@ -129,9 +121,6 @@ jobs:
               "https://github.com/nicowillis/gradle-wrapper-jar/releases/latest/download/gradle-wrapper.jar" \
               -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null \
             || true
-            echo "✅ New JAR size: $(wc -c < gradle/wrapper/gradle-wrapper.jar) bytes"
-          else
-            echo "✅ gradle-wrapper.jar is valid ($JAR_SIZE bytes)"
           fi
 
       # 3. تثبيت Java
@@ -142,22 +131,20 @@ jobs:
           distribution: temurin
           cache: gradle
 
-      # 4. تثبيت NDK + CMake وتثبيت الإصدار لمنع Gradle من اختيار NDK أحدث
+      # 4. تثبيت NDK + CMake
       - name: Install NDK & CMake
         run: |
           echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
             "ndk;${{ env.NDK_VERSION }}" \
             "cmake;${{ env.CMAKE_VERSION }}"
-          # تثبيت إصدار NDK في local.properties حتى لا يختار Gradle NDK آخر
           echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> local.properties
-          # تصدير ANDROID_NDK_ROOT لكل الـ steps اللاحقة
           echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
 
-      # 5. تثبيت تبعيات البناء (make, perl) – قد تكون مثبتة مسبقاً لكن للتأكيد
+      # 5. تثبيت تبعيات البناء
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y make perl
+        run: sudo apt-get update && sudo apt-get install -y make perl nasm ninja-build
 
-      # 6. سحب FreeRDP مباشرة (git clone)
+      # 6. سحب FreeRDP
       - name: Clone FreeRDP source
         run: |
           if [ ! -d "${{ env.FREERDP_PATH }}/.git" ]; then
@@ -174,66 +161,84 @@ jobs:
             echo "✅ FreeRDP already present"
           fi
 
-      # patch FreeRDP: تحويل find_package(SWScale REQUIRED) إلى QUIET حتى لا يفشل على Android
+      # 7. تصحيح FreeRDP للبناء على Android
+      # ─ يزيل -Werror + SWScale REQUIRED + يضيف suppress لتحذيرات Clang 17
       - name: Patch FreeRDP for Android
         run: |
           FREERDP_ROOT="${{ github.workspace }}/${{ env.FREERDP_PATH }}"
           LIBFREERDP_CMAKE="$FREERDP_ROOT/libfreerdp/CMakeLists.txt"
 
-          # 1. SWScale: REQUIRED → QUIET + حذف أسطر include/link
+          # 1. SWScale: REQUIRED → QUIET (غير متوفر على Android)
           sed -i 's/find_package(SWScale REQUIRED)/find_package(SWScale QUIET)/g' "$LIBFREERDP_CMAKE"
           sed -i '/SWScale_INCLUDE_DIR/d' "$LIBFREERDP_CMAKE"
           sed -i '/SWScale_LIBRARY/d'     "$LIBFREERDP_CMAKE"
 
-          # 2. إزالة -Werror من كل ملفات CMake في FreeRDP داخلياً
+          # 2. إزالة -Werror و ENABLE_WARNINGS من كل ملفات CMake
           find "$FREERDP_ROOT" \( -name "CMakeLists.txt" -o -name "*.cmake" \) -print0 | \
             xargs -0 sed -i \
               -e 's/-Werror\b//g' \
               -e 's/ENABLE_WARNINGS_ERROR ON/ENABLE_WARNINGS_ERROR OFF/g' \
               -e 's/ENABLE_WARNINGS_ALL ON/ENABLE_WARNINGS_ALL OFF/g'
 
-          echo "✅ FreeRDP patched (SWScale + Werror removed)"
+          # 3. إضافة suppress flags في cmake/CompilerFlags.cmake إذا وُجد
+          # هذا يوقف تحذيرات Clang 17 مثل -Wcast-function-type-strict
+          COMPILER_FLAGS_CMAKE="$FREERDP_ROOT/cmake/CompilerFlags.cmake"
+          if [ -f "$COMPILER_FLAGS_CMAKE" ]; then
+            cat >> "$COMPILER_FLAGS_CMAKE" << 'CMAKE_EOF'
 
-      # 7. Cache لـ OpenSSL المُجمَّع (يُبنى مرة واحدة لكل إصدار NDK)
+          # HexRDP patch: suppress Clang 17 strict warnings on Android NDK
+          if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+            add_compile_options(
+              -Wno-cast-function-type-strict
+              -Wno-implicit-int-conversion
+              -Wno-shorten-64-to-32
+              -Wno-sign-conversion
+              -Wno-unused-parameter
+              -Wno-shadow
+              -Wno-tautological-unsigned-char-zero-compare
+            )
+          endif()
+          CMAKE_EOF
+          fi
+
+          echo "✅ FreeRDP patched (SWScale + Werror + Clang17 warnings)"
+
+      # 8. Cache لـ OpenSSL المُجمَّع
       - name: Restore OpenSSL build cache
         id: openssl-cache
         uses: actions/cache@v4
         with:
           path: ${{ env.OPENSSL_BUILD_DIR }}
-          key: openssl-${{ env.NDK_VERSION }}-${{ hashFiles('app/src/main/cpp/FreeRDP/scripts/android-build-openssl.sh') }}
-          restore-keys: openssl-${{ env.NDK_VERSION }}-
+          key: openssl-${{ env.OPENSSL_VERSION }}-ndk${{ env.NDK_VERSION }}
+          restore-keys: openssl-${{ env.OPENSSL_VERSION }}-
 
-      # 8. بناء OpenSSL لـ arm64-v8a و x86_64 إذا لم يكن في cache
+      # 9. بناء OpenSSL 3.5.6 LTS لـ Android
+      # ─ يستخدم --libdir=lib لضمان المسار lib/ وليس lib64/
       - name: Build OpenSSL for Android
         if: steps.openssl-cache.outputs.cache-hit != 'true'
         run: |
           export ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}
-          export ANDROID_SDK=$ANDROID_SDK_ROOT
 
-          # ── تثبيت OpenSSL source ────────────────────────────────────
-          OPENSSL_VERSION="3.3.2"
-          OPENSSL_TAR="openssl-${OPENSSL_VERSION}.tar.gz"
+          OPENSSL_TAR="openssl-${{ env.OPENSSL_VERSION }}.tar.gz"
           curl -fsSL "https://www.openssl.org/source/${OPENSSL_TAR}" -o /tmp/${OPENSSL_TAR}
           tar -xf /tmp/${OPENSSL_TAR} -C /tmp
 
           TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
-          API=26   # minSdk من build.gradle.kts
+          API=26
           BUILD_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}
           mkdir -p "$BUILD_ROOT"
 
-          # إنشاء wrapper scripts تحاكي أسماء GCC التقليدية المطلوبة من OpenSSL
-          # OpenSSL يبحث عن aarch64-linux-android-gcc في PATH — نوفّره كـ wrapper لـ clang
+          # Wrapper scripts لأسماء GCC التقليدية التي يبحث عنها OpenSSL
           WRAPPERS_DIR="$BUILD_ROOT/wrappers"
           mkdir -p "$WRAPPERS_DIR"
 
           make_wrapper() {
-            local NAME=$1   # e.g. aarch64-linux-android-gcc
-            local CMD=$2    # e.g. /path/to/aarch64-linux-android26-clang
+            local NAME=$1
+            local CMD=$2
             printf '#!/bin/sh\nexec "%s" "$@"\n' "$CMD" > "$WRAPPERS_DIR/$NAME"
             chmod +x "$WRAPPERS_DIR/$NAME"
           }
 
-          # arm64-v8a wrappers
           make_wrapper "aarch64-linux-android-gcc"      "$TOOLCHAIN/bin/aarch64-linux-android${API}-clang"
           make_wrapper "aarch64-linux-android-g++"      "$TOOLCHAIN/bin/aarch64-linux-android${API}-clang++"
           make_wrapper "aarch64-linux-android-ar"       "$TOOLCHAIN/bin/llvm-ar"
@@ -242,7 +247,6 @@ jobs:
           make_wrapper "aarch64-linux-android-ld"       "$TOOLCHAIN/bin/ld.lld"
           make_wrapper "aarch64-linux-android-nm"       "$TOOLCHAIN/bin/llvm-nm"
 
-          # x86_64 wrappers
           make_wrapper "x86_64-linux-android-gcc"       "$TOOLCHAIN/bin/x86_64-linux-android${API}-clang"
           make_wrapper "x86_64-linux-android-g++"       "$TOOLCHAIN/bin/x86_64-linux-android${API}-clang++"
           make_wrapper "x86_64-linux-android-ar"        "$TOOLCHAIN/bin/llvm-ar"
@@ -251,7 +255,6 @@ jobs:
           make_wrapper "x86_64-linux-android-ld"        "$TOOLCHAIN/bin/ld.lld"
           make_wrapper "x86_64-linux-android-nm"        "$TOOLCHAIN/bin/llvm-nm"
 
-          # إضافة wrappers و toolchain إلى PATH
           export PATH="$WRAPPERS_DIR:$TOOLCHAIN/bin:$PATH"
 
           build_openssl() {
@@ -259,13 +262,10 @@ jobs:
             local ARCH=$2
             local TARGET=$3
 
-            echo "🔨 Building OpenSSL for $ABI ..."
-            cd /tmp/openssl-${OPENSSL_VERSION}
-
-            # تنظيف من أي بناء سابق
+            echo "🔨 Building OpenSSL ${{ env.OPENSSL_VERSION }} for $ABI ..."
+            cd /tmp/openssl-${{ env.OPENSSL_VERSION }}
             make clean 2>/dev/null || true
 
-            # تعيين المترجم عبر متغيرات البيئة (clang مباشرة)
             export CC="$TOOLCHAIN/bin/${TARGET}${API}-clang"
             export CXX="$TOOLCHAIN/bin/${TARGET}${API}-clang++"
             export AR="$TOOLCHAIN/bin/llvm-ar"
@@ -277,12 +277,16 @@ jobs:
             local OUT="$BUILD_ROOT/openssl-${ABI}"
             mkdir -p "$OUT"
 
+            # ملاحظة: --libdir=lib يجبر OpenSSL 3.x على الكتابة في lib/ وليس lib64/
             ./Configure ${ARCH} \
               -D__ANDROID_API__=${API} \
               --prefix="$OUT" \
               --openssldir="$OUT/ssl" \
+              --libdir=lib \
               no-shared \
-              no-tests
+              no-tests \
+              no-engine \
+              no-dynamic-engine
 
             make -j$(nproc)
             make install_sw
@@ -290,98 +294,86 @@ jobs:
           }
 
           build_openssl "arm64-v8a" "android-arm64"  "aarch64-linux-android"
-          build_openssl "x86_64"   "android-x86_64" "x86_64-linux-android"
+          build_openssl "x86_64"    "android-x86_64" "x86_64-linux-android"
 
-          echo "✅ OpenSSL built successfully for all ABIs"
+          echo "✅ OpenSSL ${{ env.OPENSSL_VERSION }} built for all ABIs"
 
-      # 9. تعيين متغير البيئة ANDROID_OPENSSL_ROOT لاستخدامه في Gradle
+      # 10. تعيين متغير البيئة ANDROID_OPENSSL_ROOT
       - name: Set OpenSSL root environment variable
         run: echo "ANDROID_OPENSSL_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}" >> $GITHUB_ENV
 
-      # 10. Cache لـ FreeRDP prebuilt
+      # 11. Cache لـ FreeRDP prebuilt
       - name: Restore FreeRDP prebuilt cache
         id: freerdp-cache
         uses: actions/cache@v4
         with:
           path: app/src/main/cpp/freerdp-prebuilt
-          key: freerdp-prebuilt-${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}
+          key: freerdp-prebuilt-ndk${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}-openssl${{ env.OPENSSL_VERSION }}
 
-      # 11. بناء FreeRDP كـ prebuilt منفصل عبر cmake مباشرة
-      # هذا يتجنب كل مشاكل add_subdirectory مع NDK toolchain
-      # 11. بناء FreeRDP باستخدام السكربت الرسمي المُدمَج في FreeRDP نفسه
-      # android-build-freerdp.sh يبني OpenSSL وكل التبعيات تلقائياً
-      # المكتبات تُوضع في client/Android/Studio/freeRDPCore/src/main/jniLibs/
+      # 12. بناء FreeRDP 3.24.2 كـ prebuilt منفصل
+      # ─ يستخدم OpenSSL static + يُعطّل كل التبعيات غير المتوفرة على Android
       - name: Build FreeRDP prebuilt
         if: steps.freerdp-cache.outputs.cache-hit != 'true'
         run: |
           FREERDP_SRC=${{ github.workspace }}/${{ env.FREERDP_PATH }}
           PREBUILT_ROOT=${{ github.workspace }}/app/src/main/cpp/freerdp-prebuilt
-
-          sudo apt-get install -y make perl nasm
-
           OPENSSL_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}
-          JNILIBS="$FREERDP_SRC/client/Android/Studio/freeRDPCore/src/main/jniLibs"
 
-          # نُعدّ مجلد jniLibs بـ OpenSSL 3.x المبني مسبقاً
-          # هذا يجعل السكربت يتجاوز بناء OpenSSL ويستخدم ما هو موجود
+          sudo apt-get install -y make perl nasm ninja-build
+
           for ABI in arm64-v8a x86_64; do
-            mkdir -p "$JNILIBS/$ABI"
-            cp -f "$OPENSSL_ROOT/openssl-$ABI/lib/libcrypto.so" "$JNILIBS/$ABI/" 2>/dev/null ||               cp -f "$OPENSSL_ROOT/openssl-$ABI/lib/libcrypto.a"  "$JNILIBS/$ABI/" 2>/dev/null || true
-            cp -f "$OPENSSL_ROOT/openssl-$ABI/lib/libssl.so"    "$JNILIBS/$ABI/" 2>/dev/null ||               cp -f "$OPENSSL_ROOT/openssl-$ABI/lib/libssl.a"    "$JNILIBS/$ABI/" 2>/dev/null || true
-            mkdir -p "$JNILIBS/$ABI/include"
-            cp -rf "$OPENSSL_ROOT/openssl-$ABI/include/"* "$JNILIBS/$ABI/include/" 2>/dev/null || true
-          done
-
-          # تشغيل السكربت مع تمرير FREERDP_EXTERNAL_PATH ليعلم أن OpenSSL جاهز
-          # وتجاوز armeabi-v7a و x86 (نريد arm64-v8a و x86_64 فقط)
-          cd "$FREERDP_SRC"
-
-          # patch سكربت OpenSSL ليتخطى البناء إذا وجد libcrypto
-          cat > /tmp/skip_openssl_patch.sh << 'PATCH'
-          SCRIPT="$1/scripts/android-build-openssl.sh"
-          # إذا وُجد libcrypto في الوجهة، تخطّ البناء
-          sed -i '1a\
-          # Auto-patch: skip if already built\
-          if ls "${DST}"/*libcrypto* 2>/dev/null; then echo "OpenSSL already built, skipping"; exit 0; fi' "$SCRIPT"
-          PATCH
-          # (لا نحتاجه — سنستخدم نهجاً مباشراً)
-
-          # الحل المباشر: نبني FreeRDP فقط بدون إعادة بناء OpenSSL
-          # باستخدام FREERDP_EXTERNAL_PATH الذي يُخبر CMake بمسار التبعيات الجاهزة
-          for ABI in arm64-v8a x86_64; do
-            echo "🔨 Building FreeRDP for $ABI ..."
+            echo "🔨 Building FreeRDP ${{ env.FREERDP_TAG }} for $ABI ..."
             OUT="$PREBUILT_ROOT/$ABI"
             BUILD_DIR="/tmp/freerdp-build-$ABI"
             mkdir -p "$OUT" "$BUILD_DIR"
 
-            # نُحضر OpenSSL إلى المكان الذي يتوقعه السكربت
-            EXTERNAL="$JNILIBS/$ABI"
+            OPENSSL_ABI_DIR="$OPENSSL_ROOT/openssl-$ABI"
 
             cmake -S "$FREERDP_SRC" -B "$BUILD_DIR" \
+              --no-warn-unused-cli \
               -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" \
               -DANDROID_ABI="$ABI" \
               -DANDROID_PLATFORM="android-26" \
+              -DANDROID_STL="c++_shared" \
               -DCMAKE_BUILD_TYPE=MinSizeRel \
               -DCMAKE_INSTALL_PREFIX="$OUT" \
-              -DFREERDP_EXTERNAL_PATH="$EXTERNAL" \
-              -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT/openssl-$ABI" \
-              -DOPENSSL_INCLUDE_DIR="$OPENSSL_ROOT/openssl-$ABI/include" \
-              -DOPENSSL_CRYPTO_LIBRARY="$OPENSSL_ROOT/openssl-$ABI/lib/libcrypto.a" \
-              -DOPENSSL_SSL_LIBRARY="$OPENSSL_ROOT/openssl-$ABI/lib/libssl.a" \
+              \
+              -DOPENSSL_ROOT_DIR="$OPENSSL_ABI_DIR" \
+              -DOPENSSL_INCLUDE_DIR="$OPENSSL_ABI_DIR/include" \
+              -DOPENSSL_CRYPTO_LIBRARY="$OPENSSL_ABI_DIR/lib/libcrypto.a" \
+              -DOPENSSL_SSL_LIBRARY="$OPENSSL_ABI_DIR/lib/libssl.a" \
+              -DOPENSSL_USE_STATIC_LIBS=ON \
               -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
-              -DWITH_CLIENT=ON -DWITH_SERVER=OFF -DWITH_SHADOW=OFF \
-              -DWITH_PLATFORM_SERVER=OFF -DWITH_SAMPLE=OFF \
-              -DWITH_FFMPEG=OFF -DWITH_DSP_FFMPEG=OFF -DWITH_VIDEO_FFMPEG=OFF \
-              -DWITH_CUPS=OFF -DWITH_PULSE=OFF -DWITH_X11=OFF -DWITH_WAYLAND=OFF \
-              -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=ON \
-              -DENABLE_WARNINGS_ALL=OFF -DENABLE_WARNINGS_ERROR=OFF \
-              "-DCMAKE_C_FLAGS_INIT=-w" "-DCMAKE_CXX_FLAGS_INIT=-w" \
+              \
+              -DWITH_CLIENT=ON \
+              -DWITH_SERVER=OFF \
+              -DWITH_SHADOW=OFF \
+              -DWITH_PLATFORM_SERVER=OFF \
+              -DWITH_SAMPLE=OFF \
+              -DWITH_FFMPEG=OFF \
+              -DWITH_DSP_FFMPEG=OFF \
+              -DWITH_VIDEO_FFMPEG=OFF \
+              -DWITH_CUPS=OFF \
+              -DWITH_PULSE=OFF \
+              -DWITH_X11=OFF \
+              -DWITH_WAYLAND=OFF \
+              -DWITH_SWSCALE=OFF \
+              -DWITH_LIBSYSTEMD=OFF \
+              -DWITH_PCSC=OFF \
+              -DWITH_FUSE=OFF \
+              -DBUILD_TESTING=OFF \
+              -DBUILD_SHARED_LIBS=ON \
+              \
+              -DENABLE_WARNINGS_ALL=OFF \
+              -DENABLE_WARNINGS_ERROR=OFF \
+              -DCMAKE_C_FLAGS_INIT="-w" \
+              -DCMAKE_CXX_FLAGS_INIT="-w" \
               -GNinja
 
             cmake --build "$BUILD_DIR" --parallel $(nproc)
             cmake --install "$BUILD_DIR"
 
-            # نسخ الـ .so للـ CMakeLists.txt
+            # نسخ المكتبات المبنية
             mkdir -p "$PREBUILT_ROOT/$ABI/lib" "$PREBUILT_ROOT/$ABI/include"
             find "$BUILD_DIR" -name "*.so" -exec cp -f {} "$PREBUILT_ROOT/$ABI/lib/" \;
             cp -rf "$OUT/include/"* "$PREBUILT_ROOT/$ABI/include/" 2>/dev/null || true
@@ -389,14 +381,14 @@ jobs:
           done
           echo "✅ FreeRDP prebuilt complete"
 
-      # 12. بناء APK — Gradle يستخدم prebuilt libs مباشرة عبر CMakeLists.txt
+      # 13. بناء APK
       - name: Build Debug APK
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug \
             --no-daemon --stacktrace
 
-      # 12. رفع الـ APK كـ artifact
+      # 14. رفع APK كـ artifact
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -442,7 +434,7 @@ jobs:
           echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
 
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y make perl
+        run: sudo apt-get update && sudo apt-get install -y make perl nasm ninja-build
 
       - name: Clone FreeRDP source
         run: |
@@ -456,42 +448,55 @@ jobs:
               ${{ env.FREERDP_PATH }}
           fi
 
-      # patch FreeRDP: تحويل find_package(SWScale REQUIRED) إلى QUIET حتى لا يفشل على Android
       - name: Patch FreeRDP for Android
         run: |
           FREERDP_ROOT="${{ github.workspace }}/${{ env.FREERDP_PATH }}"
           LIBFREERDP_CMAKE="$FREERDP_ROOT/libfreerdp/CMakeLists.txt"
 
-          # 1. SWScale: REQUIRED → QUIET + حذف أسطر include/link
           sed -i 's/find_package(SWScale REQUIRED)/find_package(SWScale QUIET)/g' "$LIBFREERDP_CMAKE"
           sed -i '/SWScale_INCLUDE_DIR/d' "$LIBFREERDP_CMAKE"
           sed -i '/SWScale_LIBRARY/d'     "$LIBFREERDP_CMAKE"
 
-          # 2. إزالة -Werror من كل ملفات CMake في FreeRDP داخلياً
           find "$FREERDP_ROOT" \( -name "CMakeLists.txt" -o -name "*.cmake" \) -print0 | \
             xargs -0 sed -i \
               -e 's/-Werror\b//g' \
               -e 's/ENABLE_WARNINGS_ERROR ON/ENABLE_WARNINGS_ERROR OFF/g' \
               -e 's/ENABLE_WARNINGS_ALL ON/ENABLE_WARNINGS_ALL OFF/g'
 
-          echo "✅ FreeRDP patched (SWScale + Werror removed)"
+          COMPILER_FLAGS_CMAKE="$FREERDP_ROOT/cmake/CompilerFlags.cmake"
+          if [ -f "$COMPILER_FLAGS_CMAKE" ]; then
+            cat >> "$COMPILER_FLAGS_CMAKE" << 'CMAKE_EOF'
+
+          if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+            add_compile_options(
+              -Wno-cast-function-type-strict
+              -Wno-implicit-int-conversion
+              -Wno-shorten-64-to-32
+              -Wno-sign-conversion
+              -Wno-unused-parameter
+              -Wno-shadow
+              -Wno-tautological-unsigned-char-zero-compare
+            )
+          endif()
+          CMAKE_EOF
+          fi
+
+          echo "✅ FreeRDP patched"
 
       - name: Restore OpenSSL build cache
         id: openssl-cache
         uses: actions/cache@v4
         with:
           path: ${{ env.OPENSSL_BUILD_DIR }}
-          key: openssl-${{ env.NDK_VERSION }}-${{ hashFiles('app/src/main/cpp/FreeRDP/scripts/android-build-openssl.sh') }}
-          restore-keys: openssl-${{ env.NDK_VERSION }}-
+          key: openssl-${{ env.OPENSSL_VERSION }}-ndk${{ env.NDK_VERSION }}
+          restore-keys: openssl-${{ env.OPENSSL_VERSION }}-
 
       - name: Build OpenSSL for Android
         if: steps.openssl-cache.outputs.cache-hit != 'true'
         run: |
           export ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}
-          export ANDROID_SDK=$ANDROID_SDK_ROOT
 
-          OPENSSL_VERSION="3.3.2"
-          OPENSSL_TAR="openssl-${OPENSSL_VERSION}.tar.gz"
+          OPENSSL_TAR="openssl-${{ env.OPENSSL_VERSION }}.tar.gz"
           curl -fsSL "https://www.openssl.org/source/${OPENSSL_TAR}" -o /tmp/${OPENSSL_TAR}
           tar -xf /tmp/${OPENSSL_TAR} -C /tmp
 
@@ -500,7 +505,6 @@ jobs:
           BUILD_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}
           mkdir -p "$BUILD_ROOT"
 
-          # إنشاء wrapper scripts تحاكي أسماء GCC التقليدية المطلوبة من OpenSSL
           WRAPPERS_DIR="$BUILD_ROOT/wrappers"
           mkdir -p "$WRAPPERS_DIR"
 
@@ -534,8 +538,8 @@ jobs:
             local ARCH=$2
             local TARGET=$3
 
-            echo "🔨 Building OpenSSL for $ABI ..."
-            cd /tmp/openssl-${OPENSSL_VERSION}
+            echo "🔨 Building OpenSSL ${{ env.OPENSSL_VERSION }} for $ABI ..."
+            cd /tmp/openssl-${{ env.OPENSSL_VERSION }}
             make clean 2>/dev/null || true
 
             export CC="$TOOLCHAIN/bin/${TARGET}${API}-clang"
@@ -553,8 +557,11 @@ jobs:
               -D__ANDROID_API__=${API} \
               --prefix="$OUT" \
               --openssldir="$OUT/ssl" \
+              --libdir=lib \
               no-shared \
-              no-tests
+              no-tests \
+              no-engine \
+              no-dynamic-engine
 
             make -j$(nproc)
             make install_sw
@@ -562,7 +569,7 @@ jobs:
           }
 
           build_openssl "arm64-v8a" "android-arm64"  "aarch64-linux-android"
-          build_openssl "x86_64"   "android-x86_64" "x86_64-linux-android"
+          build_openssl "x86_64"    "android-x86_64" "x86_64-linux-android"
 
       - name: Set OpenSSL root environment variable
         run: echo "ANDROID_OPENSSL_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}" >> $GITHUB_ENV
@@ -572,40 +579,62 @@ jobs:
         uses: actions/cache@v4
         with:
           path: app/src/main/cpp/freerdp-prebuilt
-          key: freerdp-prebuilt-${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}
+          key: freerdp-prebuilt-ndk${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}-openssl${{ env.OPENSSL_VERSION }}
 
       - name: Build FreeRDP prebuilt
         if: steps.freerdp-cache-release.outputs.cache-hit != 'true'
         run: |
           FREERDP_SRC=${{ github.workspace }}/${{ env.FREERDP_PATH }}
           PREBUILT_ROOT=${{ github.workspace }}/app/src/main/cpp/freerdp-prebuilt
-
           OPENSSL_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}
 
           for ABI in arm64-v8a x86_64; do
-            echo "🔨 Building FreeRDP for $ABI ..."
+            echo "🔨 Building FreeRDP ${{ env.FREERDP_TAG }} for $ABI ..."
             OUT="$PREBUILT_ROOT/$ABI"
             BUILD_DIR="/tmp/freerdp-build-$ABI"
             mkdir -p "$OUT" "$BUILD_DIR"
 
+            OPENSSL_ABI_DIR="$OPENSSL_ROOT/openssl-$ABI"
+
             cmake -S "$FREERDP_SRC" -B "$BUILD_DIR" \
+              --no-warn-unused-cli \
               -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" \
               -DANDROID_ABI="$ABI" \
               -DANDROID_PLATFORM="android-26" \
+              -DANDROID_STL="c++_shared" \
               -DCMAKE_BUILD_TYPE=MinSizeRel \
               -DCMAKE_INSTALL_PREFIX="$OUT" \
-              -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT/openssl-$ABI" \
-              -DOPENSSL_INCLUDE_DIR="$OPENSSL_ROOT/openssl-$ABI/include" \
-              -DOPENSSL_CRYPTO_LIBRARY="$OPENSSL_ROOT/openssl-$ABI/lib/libcrypto.a" \
-              -DOPENSSL_SSL_LIBRARY="$OPENSSL_ROOT/openssl-$ABI/lib/libssl.a" \
+              \
+              -DOPENSSL_ROOT_DIR="$OPENSSL_ABI_DIR" \
+              -DOPENSSL_INCLUDE_DIR="$OPENSSL_ABI_DIR/include" \
+              -DOPENSSL_CRYPTO_LIBRARY="$OPENSSL_ABI_DIR/lib/libcrypto.a" \
+              -DOPENSSL_SSL_LIBRARY="$OPENSSL_ABI_DIR/lib/libssl.a" \
+              -DOPENSSL_USE_STATIC_LIBS=ON \
               -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
-              -DWITH_CLIENT=ON -DWITH_SERVER=OFF -DWITH_SHADOW=OFF \
-              -DWITH_PLATFORM_SERVER=OFF -DWITH_SAMPLE=OFF \
-              -DWITH_FFMPEG=OFF -DWITH_DSP_FFMPEG=OFF -DWITH_VIDEO_FFMPEG=OFF \
-              -DWITH_CUPS=OFF -DWITH_PULSE=OFF -DWITH_X11=OFF -DWITH_WAYLAND=OFF \
-              -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=ON \
-              -DENABLE_WARNINGS_ALL=OFF -DENABLE_WARNINGS_ERROR=OFF \
-              "-DCMAKE_C_FLAGS_INIT=-w" "-DCMAKE_CXX_FLAGS_INIT=-w" \
+              \
+              -DWITH_CLIENT=ON \
+              -DWITH_SERVER=OFF \
+              -DWITH_SHADOW=OFF \
+              -DWITH_PLATFORM_SERVER=OFF \
+              -DWITH_SAMPLE=OFF \
+              -DWITH_FFMPEG=OFF \
+              -DWITH_DSP_FFMPEG=OFF \
+              -DWITH_VIDEO_FFMPEG=OFF \
+              -DWITH_CUPS=OFF \
+              -DWITH_PULSE=OFF \
+              -DWITH_X11=OFF \
+              -DWITH_WAYLAND=OFF \
+              -DWITH_SWSCALE=OFF \
+              -DWITH_LIBSYSTEMD=OFF \
+              -DWITH_PCSC=OFF \
+              -DWITH_FUSE=OFF \
+              -DBUILD_TESTING=OFF \
+              -DBUILD_SHARED_LIBS=ON \
+              \
+              -DENABLE_WARNINGS_ALL=OFF \
+              -DENABLE_WARNINGS_ERROR=OFF \
+              -DCMAKE_C_FLAGS_INIT="-w" \
+              -DCMAKE_CXX_FLAGS_INIT="-w" \
               -GNinja
 
             cmake --build "$BUILD_DIR" --parallel $(nproc)
@@ -615,7 +644,6 @@ jobs:
             cp -rf "$OUT/include/"* "$PREBUILT_ROOT/$ABI/include/" 2>/dev/null || true
             echo "✅ Done $ABI"
           done
-          echo "✅ FreeRDP prebuilt complete"
 
       - name: Decode keystore
         run: |
@@ -644,4 +672,3 @@ jobs:
           files: app/build/outputs/apk/release/HexRDP-${{ github.ref_name }}.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
