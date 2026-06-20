@@ -1,28 +1,83 @@
+# ════════════════════════════════════════════════════════════════════
+# HexRDP — Version Catalog (آخر تحديث: يونيو 2026)
+# ════════════════════════════════════════════════════════════════════
+#
+# ⚠️  قواعد صارمة:
+#   1. kotlin + ksp يجب أن يتطابقا: ksp = "<kotlin>-<patch>"
+#   2. hilt (dagger) + hiltNavCompose إصدارات منفصلة لكن متوافقة
+#   3. bouncycastle: bcprov + bctls يجب أن يكونا نفس الإصدار دائماً
+#   4. jsch 0.2.x يستخدم package اسمه com.jcraft.jsch — لا تغيير في الكود
+#   5. coil: نبقى على 2.7.0 (آخر 2.x) — coil3 يغيّر package name كاملاً
+#
+# ════════════════════════════════════════════════════════════════════
+
 [versions]
-agp = "8.7.3"
-kotlin = "2.1.0"
-coreKtx = "1.15.0"
-appcompat = "1.7.0"
-junit = "4.13.2"
+
+# ── Build Tools ──────────────────────────────────────────────────────
+agp = "8.7.3"            # Android Gradle Plugin — متوافق مع Gradle 8.10.2
+
+# ── Kotlin / KSP (يجب أن يتطابقا!) ──────────────────────────────────
+# 🔴 CRITICAL: القاعدة = ksp يبدأ بنفس إصدار kotlin تماماً
+#   kotlin=2.1.21 → ksp=2.1.21-2.0.1  ✅
+#   kotlin=2.1.0  → ksp=2.1.21-2.0.1  ❌ (سيفشل البناء)
+kotlin = "2.1.21"        # was: 2.1.0 → أحدث 2.1.x stable + يُصلح bug في KSP
+ksp    = "2.1.21-2.0.1"  # was: 2.1.0-1.0.29 → يجب مطابقة kotlin
+
+# ── Hilt (DI) ────────────────────────────────────────────────────────
+# 🔴 CRITICAL: Hilt 2.54 + Kotlin 2.1.x = خطأ:
+#   "[Hilt] Provided Metadata instance has version 2.1.0, max is 2.0.0"
+#   السبب: kotlinx-metadata-jvm القديم داخل Hilt 2.54 لا يدعم Kotlin 2.1.x
+#   الحل: Hilt 2.56+ يحتوي kotlinx-metadata-jvm محدَّث
+hilt          = "2.56"   # was: 2.54 → 🔴 الإصلاح الأساسي لفشل البناء
+hiltNavCompose = "1.2.0" # androidx.hilt — stable (1.4.x لا تزال beta)
+
+# ── AndroidX Core ────────────────────────────────────────────────────
+coreKtx             = "1.16.0"    # was: 1.15.0
+appcompat           = "1.7.0"     # keep
+lifecycleRuntimeKtx = "2.9.0"    # was: 2.8.7
+activityCompose     = "1.10.1"   # was: 1.9.3
+navigationCompose   = "2.8.5"    # keep — 2.9.x تغيير سلوك NavController
+room                = "2.7.1"    # was: 2.6.1
+datastore           = "1.1.4"    # was: 1.1.1
+coroutines          = "1.10.2"   # was: 1.9.0
+workManager         = "2.11.2"   # was: 2.10.0 → من الوثائق الرسمية
+splashscreen        = "1.2.0"    # was: 1.0.1  → من الوثائق الرسمية
+
+# ── Compose ──────────────────────────────────────────────────────────
+composeBom = "2026.04.01"  # was: 2024.12.01 → أحدث stable BOM (أبريل 2026)
+                           # يُحدّث: Material3, UI, Foundation, Animation تلقائياً
+
+# ── Testing (stable لسنوات) ───────────────────────────────────────────
+junit        = "4.13.2"
 junitVersion = "1.2.1"
 espressoCore = "3.6.1"
-lifecycleRuntimeKtx = "2.8.7"
-activityCompose = "1.9.3"
-composeBom = "2024.12.01"
-navigationCompose = "2.8.5"
-hilt = "2.54"
-hiltNavCompose = "1.2.0"
-room = "2.6.1"
-datastore = "1.1.1"
-coroutines = "1.9.0"
-ksp = "2.1.0-1.0.29"
-coil = "2.7.0"
-lottie = "6.6.2"
-gson = "2.11.0"
-workManager = "2.10.0"
-splashscreen = "1.0.1"
-bouncycastle = "1.80"
-jsch = "0.2.18"
+
+# ── Network / Crypto / SSH ───────────────────────────────────────────
+# BouncyCastle — TLS/NLA encryption لـ RDP
+# ⚠️ bcprov + bctls يجب أن يكونا نفس الإصدار دائماً
+bouncycastle = "1.84"  # was: 1.80 → Apr 2026 (أحدث stable)
+                       # jsch الجديد نفسه يعتمد على 1.84 → نوحّد الإصدار
+
+# JSch (com.github.mwiede) — SSH2 client لخاصية SSH Terminal
+# package name: com.jcraft.jsch — محفوظ في كل الإصدارات → لا تغيير في الكود
+# الإصدار 0.2.x على Maven Central، أحدث 0.2.x هو 0.2.24
+jsch = "0.2.24"  # was: 0.2.18
+                 # ملاحظة: المشروع انتقل لنظام إصدار جديد (2.x)
+                 # أحدث إصدار 2.28.2 لكن يتطلب اختبار التوافق
+
+# ── UI Libraries ─────────────────────────────────────────────────────
+# Coil — تحميل الصور
+# ⚠️ coil3 يغيّر package name إلى io.coil-kt.coil3
+#    وتتطلب الهجرة تغيير imports + إضافة coil-network-okhttp
+#    → نبقى على 2.7.0 (آخر 2.x) حتى الهجرة المقصودة
+coil   = "2.7.0"  # keep — آخر إصدار 2.x، لا upgrade تلقائي لـ 3.x
+
+# Lottie — أنيميشن After Effects
+lottie = "6.7.1"  # was: 6.6.2 → أحدث stable (أكتوبر 2025)
+
+# Gson — JSON serialization
+gson = "2.12.0"  # was: 2.11.0 → أحدث على Maven Central
+
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
