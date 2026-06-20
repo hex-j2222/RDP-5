@@ -1,107 +1,79 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(hexrdp_native)
 
-# ════════════════════════════════════════════════════════════════════════
-# aFreeRDP / FreeRDP native bridge
-# ════════════════════════════════════════════════════════════════════════
-
 set(CMAKE_C_STANDARD 11)
-set(FREERDP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/FreeRDP)
 
-# ── تحديد مسار OpenSSL لكل ABI ──────────────────────────────────────────
-# ANDROID_OPENSSL_ROOT يُمرَّر من build.gradle.kts كـ -D argument.
-# نحسب المسار الكامل لكل ABI ثم نُعيّن OPENSSL_* كـ CACHE vars
-# حتى يجدها winpr و libfreerdp عند استدعاء find_package(OpenSSL).
+# ════════════════════════════════════════════════════════════════════════
+# HexRDP JNI Bridge
+# ════════════════════════════════════════════════════════════════════════
 #
-# ملاحظة مهمة: NDK toolchain يُعيَّن بعد CMakeLists.txt ويُعيد ضبط
-# CMAKE_FIND_ROOT_PATH_MODE_PACKAGE. لذلك الحل الوحيد الموثوق هو تمرير
-# OPENSSL_CRYPTO_LIBRARY و OPENSSL_SSL_LIBRARY و OPENSSL_INCLUDE_DIR
-# مباشرةً كـ -D arguments من Gradle (انظر build.gradle.kts) — هذا يُدخلها
-# في cmake cache مباشرة قبل أي processing ويتجاوز مشكلة الـ toolchain.
+# الاستراتيجية: نستخدم FreeRDP و OpenSSL كـ prebuilt libraries جاهزة.
+# FreeRDP يُبنى مسبقاً في CI عبر cmake مباشرة (انظر main.yml خطوة
+# "Build FreeRDP prebuilt"). هذا يتجنب تماماً مشاكل add_subdirectory
+# مع NDK toolchain (SWScale REQUIRED، OpenSSL scope، إلخ).
+
+set(FREERDP_DIR    ${CMAKE_CURRENT_SOURCE_DIR}/FreeRDP)
+set(FREERDP_PREBUILT_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/freerdp-prebuilt)
+set(FREERDP_ABI_DIR ${FREERDP_PREBUILT_ROOT}/${ANDROID_ABI})
+
+# OpenSSL prebuilt
 if(DEFINED ANDROID_OPENSSL_ROOT AND NOT ANDROID_OPENSSL_ROOT STREQUAL "")
-    set(_OPENSSL_ABI_DIR "${ANDROID_OPENSSL_ROOT}/openssl-${ANDROID_ABI}")
-    message(STATUS "HexRDP: Using OpenSSL from ${_OPENSSL_ABI_DIR}")
-
-    # نتحقق من وجود الملف فعلاً قبل المتابعة
-    if(NOT EXISTS "${_OPENSSL_ABI_DIR}/lib/libcrypto.a")
-        message(FATAL_ERROR "HexRDP: libcrypto.a not found at ${_OPENSSL_ABI_DIR}/lib/libcrypto.a")
-    endif()
-
-    # تعيين OPENSSL_ROOT_DIR فقط — find_package(OpenSSL) سيشتق منه الباقي
-    # تعيينها كـ CACHE INTERNAL تجعلها مرئية لكل subdirectory
-    set(OPENSSL_ROOT_DIR       "${_OPENSSL_ABI_DIR}"                    CACHE INTERNAL "")
-    set(OPENSSL_INCLUDE_DIR    "${_OPENSSL_ABI_DIR}/include"            CACHE INTERNAL "")
-    set(OPENSSL_CRYPTO_LIBRARY "${_OPENSSL_ABI_DIR}/lib/libcrypto.a"    CACHE INTERNAL "")
-    set(OPENSSL_SSL_LIBRARY    "${_OPENSSL_ABI_DIR}/lib/libssl.a"       CACHE INTERNAL "")
-
-    # إضافة المسار إلى CMAKE_PREFIX_PATH (يعمل مع FIND_ROOT_PATH_MODE_PACKAGE=BOTH)
-    list(APPEND CMAKE_PREFIX_PATH "${_OPENSSL_ABI_DIR}")
-    # فرض وضع البحث لمنع NDK toolchain من تقييد find_package داخل sysroot فقط
-    set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH CACHE STRING "" FORCE)
+    set(OPENSSL_ABI_DIR "${ANDROID_OPENSSL_ROOT}/openssl-${ANDROID_ABI}")
+else()
+    message(FATAL_ERROR "ANDROID_OPENSSL_ROOT is required")
 endif()
 
-# Only build the native bridge if the FreeRDP submodule has actually been
-# checked out. This lets the rest of the Gradle project (VNC, SSH, pure-
-# Kotlin RDP fallback) configure and build fine even before you've pulled
-# the submodule, instead of hard-failing the whole project.
-if(EXISTS "${FREERDP_DIR}/CMakeLists.txt")
-    message(STATUS "HexRDP: FreeRDP submodule found, building native aFreeRDP bridge")
+# ── الحالة 1: FreeRDP prebuilt موجود → بناء JNI bridge كامل ──────────
+if(EXISTS "${FREERDP_ABI_DIR}/lib/libfreerdp3.a" OR
+   EXISTS "${FREERDP_ABI_DIR}/lib/libfreerdp3.so")
 
-    # FreeRDP build options tuned for a minimal mobile client:
-    # client/server libs we don't need are disabled to keep the .so small
-    # and the build fast.
-    set(WITH_CLIENT ON CACHE BOOL "" FORCE)
-    set(WITH_SERVER OFF CACHE BOOL "" FORCE)
-    set(WITH_SHADOW OFF CACHE BOOL "" FORCE)
-    set(WITH_PLATFORM_SERVER OFF CACHE BOOL "" FORCE)
-    set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-    set(WITH_SAMPLE OFF CACHE BOOL "" FORCE)
-    set(CHANNEL_URBDRC OFF CACHE BOOL "" FORCE)
+    message(STATUS "HexRDP: FreeRDP prebuilt found at ${FREERDP_ABI_DIR}")
 
-    # تعطيل FFmpeg وكل مكوناته — على Android لا يتوفر SWScale/FFmpeg في NDK sysroot.
-    # WITH_FFMPEG=OFF يُعطّل الـ feature عند مستوى FreeRDP/CMakeLists.txt،
-    # لكن libfreerdp/CMakeLists.txt يستدعي find_package(SWScale REQUIRED)
-    # بشرط WITH_DSP_FFMPEG (وليس WITH_FFMPEG مباشرة). يجب تعطيله صراحةً.
-    # ملاحظة: CMAKE_DISABLE_FIND_PACKAGE_SWScale لا يعمل مع REQUIRED packages،
-    # الحل الوحيد هو منع الكود من الوصول لـ find_package عبر WITH_DSP_FFMPEG=OFF.
-    set(WITH_FFMPEG     OFF CACHE BOOL "" FORCE)
-    set(WITH_DSP_FFMPEG OFF CACHE BOOL "" FORCE)
-    set(WITH_VIDEO_FFMPEG OFF CACHE BOOL "" FORCE)
-    # منع أي find_package لمكونات FFmpeg كطبقة أمان إضافية
-    # (تعمل فقط عند non-REQUIRED، لكن نضيفها للوضوح)
-    set(CMAKE_DISABLE_FIND_PACKAGE_FFmpeg   TRUE CACHE BOOL "" FORCE)
-    set(CMAKE_DISABLE_FIND_PACKAGE_AVCodec  TRUE CACHE BOOL "" FORCE)
-    set(CMAKE_DISABLE_FIND_PACKAGE_AVUtil   TRUE CACHE BOOL "" FORCE)
-    set(CMAKE_DISABLE_FIND_PACKAGE_AVFormat TRUE CACHE BOOL "" FORCE)
+    # OpenSSL
+    add_library(OpenSSL::Crypto STATIC IMPORTED)
+    set_target_properties(OpenSSL::Crypto PROPERTIES
+        IMPORTED_LOCATION "${OPENSSL_ABI_DIR}/lib/libcrypto.a")
 
-    set(WITH_CUPS OFF CACHE BOOL "" FORCE)
-    set(WITH_PULSE OFF CACHE BOOL "" FORCE)
-    set(CMAKE_DISABLE_FIND_PACKAGE_PulseAudio TRUE CACHE BOOL "" FORCE)
-    set(WITH_X11 OFF CACHE BOOL "" FORCE)
-    set(WITH_WAYLAND OFF CACHE BOOL "" FORCE)
+    add_library(OpenSSL::SSL STATIC IMPORTED)
+    set_target_properties(OpenSSL::SSL PROPERTIES
+        IMPORTED_LOCATION "${OPENSSL_ABI_DIR}/lib/libssl.a")
 
-    add_subdirectory(${FREERDP_DIR} freerdp_build)
+    # WinPR
+    add_library(winpr STATIC IMPORTED)
+    set_target_properties(winpr PROPERTIES
+        IMPORTED_LOCATION "${FREERDP_ABI_DIR}/lib/libwinpr3.a")
 
+    # FreeRDP
+    add_library(freerdp STATIC IMPORTED)
+    set_target_properties(freerdp PROPERTIES
+        IMPORTED_LOCATION "${FREERDP_ABI_DIR}/lib/libfreerdp3.a")
+
+    add_library(freerdp-client STATIC IMPORTED)
+    set_target_properties(freerdp-client PROPERTIES
+        IMPORTED_LOCATION "${FREERDP_ABI_DIR}/lib/libfreerdp-client3.a")
+
+    # JNI bridge
     add_library(hexrdp_jni SHARED hexrdp_jni.c)
 
     target_include_directories(hexrdp_jni PRIVATE
-        ${FREERDP_DIR}/include
-        ${CMAKE_CURRENT_BINARY_DIR}/freerdp_build/include
-        ${FREERDP_DIR}/winpr/include
-        ${CMAKE_CURRENT_BINARY_DIR}/freerdp_build/winpr/include
+        ${FREERDP_ABI_DIR}/include
+        ${OPENSSL_ABI_DIR}/include
     )
 
     target_link_libraries(hexrdp_jni
-        freerdp
         freerdp-client
+        freerdp
         winpr
+        OpenSSL::SSL
+        OpenSSL::Crypto
         android
         log
+        z
     )
+
+# ── الحالة 2: لا prebuilt → skip silently, Kotlin fallback يعمل ─────────
 else()
-    message(STATUS "HexRDP: FreeRDP submodule NOT found at ${FREERDP_DIR} — "
-                    "skipping native aFreeRDP bridge. The app will still build "
-                    "and run using the pure-Kotlin RDP client as a fallback, "
-                    "plus VNC and SSH. Run the commands in SETUP.md to add "
-                    "the submodule and rebuild for native aFreeRDP support.")
+    message(STATUS "HexRDP: FreeRDP prebuilt NOT found at ${FREERDP_ABI_DIR}")
+    message(STATUS "HexRDP: Skipping native bridge — Kotlin RDP client will be used")
+    message(STATUS "HexRDP: Run CI to build FreeRDP prebuilt automatically")
 endif()
