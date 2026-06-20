@@ -2,6 +2,25 @@
 # HexRDP — GitHub Actions CI/CD
 # كل شيء تلقائي 100%، لا تحتاج Android Studio ولا NDK على جهازك
 # ══════════════════════════════════════════════════════════════════
+#
+# كيف يعمل:
+#   1. GitHub Actions يسحب كود مشروعك
+#   2. يُصلح gradle-wrapper.jar (Git LFS pointer → JAR حقيقي)
+#   3. يحمّل FreeRDP مباشرة من GitHub (git clone) إلى المكان الصحيح
+#   4. يثبّت NDK + CMake تلقائياً
+#   5. يبني OpenSSL لـ Android (arm64-v8a و x86_64) باستخدام سكربت FreeRDP
+#   6. يبني APK كامل (native + Kotlin) مع تمرير مسار OpenSSL
+#   7. يحفظ مخرجات FreeRDP و OpenSSL في cache → البناءات التالية سريعة جداً
+#
+# للـ Release (APK موقّع + نشر تلقائي على GitHub Releases):
+#   أضف هذه الـ Secrets في:
+#   GitHub repo → Settings → Secrets and variables → Actions → New secret
+#
+#   KEYSTORE_BASE64   → محتوى ملف .jks مشفّر بـ base64
+#   KEY_ALIAS         → اسم الـ alias داخل الـ keystore
+#   KEY_PASSWORD      → كلمة مرور الـ key
+#   STORE_PASSWORD    → كلمة مرور الـ keystore
+# ══════════════════════════════════════════════════════════════════
 
 name: HexRDP CI/CD
 
@@ -14,7 +33,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: \( {{ github.workflow }}- \){{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -23,22 +42,48 @@ env:
   JAVA_VERSION:   "17"
   FREERDP_TAG:    "3.5.1"
   FREERDP_PATH:   "app/src/main/cpp/FreeRDP"
-  OPENSSL_BUILD_DIR: "app/src/main/cpp/openssl-build"
+  OPENSSL_BUILD_DIR: "app/src/main/cpp/openssl-build"   # مجمع مخرجات OpenSSL
 
+# ──────────────────────────────────────────────────────────────────
 jobs:
 
+  # ── Lint (سريع، بدون native) ────────────────────────────────────
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      # إصلاح gradle-wrapper.jar — Git LFS يخزّنه كـ pointer (97 bytes)
       - name: Fix Gradle Wrapper JAR
         run: |
           JAR_SIZE=$(wc -c < gradle/wrapper/gradle-wrapper.jar)
+          echo "Current JAR size: $JAR_SIZE bytes"
           if [ "$JAR_SIZE" -lt 10000 ]; then
+            echo "⚠️  gradle-wrapper.jar is a Git LFS pointer — downloading real JAR..."
             GRADLE_VERSION=$(grep -oP '(?<=gradle-)\d+\.\d+(\.\d+)?(?=-)' gradle/wrapper/gradle-wrapper.properties)
-            curl -fsSL "https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}/gradle/wrapper/gradle-wrapper.jar" -o gradle/wrapper/gradle-wrapper.jar || true
+            echo "Gradle version detected: $GRADLE_VERSION"
+            curl -fsSL \
+              "https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}/gradle/wrapper/gradle-wrapper.jar" \
+              -o gradle/wrapper/gradle-wrapper.jar \
+            || curl -fsSL \
+              "https://github.com/gradle/gradle/releases/download/v${GRADLE_VERSION}/gradle-${GRADLE_VERSION}-wrapper.jar" \
+              -o gradle/wrapper/gradle-wrapper.jar \
+            || (
+              echo "Downloading via Gradle services..."
+              curl -fsSL \
+                "https://services.gradle.org/versions/all" \
+                | python3 -c "import sys,json; data=json.load(sys.stdin); [print(v['wrapperChecksumUrl']) for v in data if v.get('version')=='${GRADLE_VERSION}']" \
+                | head -1 \
+                | xargs -I{} echo "Checksum URL: {}"
+              curl -fsSL \
+                "https://github.com/nicowillis/gradle-wrapper-jar/releases/latest/download/gradle-wrapper.jar" \
+                -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null \
+              || true
+            )
+            echo "✅ New JAR size: $(wc -c < gradle/wrapper/gradle-wrapper.jar) bytes"
+          else
+            echo "✅ gradle-wrapper.jar is valid ($JAR_SIZE bytes)"
           fi
 
       - uses: actions/setup-java@v4
@@ -50,23 +95,46 @@ jobs:
       - run: chmod +x gradlew
       - run: ./gradlew lint --no-daemon
 
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-*.html
+          retention-days: 7
+
+  # ── Build Debug APK ─────────────────────────────────────────────
   build:
     name: Build Debug APK
     runs-on: ubuntu-latest
     needs: lint
 
     steps:
+      # 1. سحب الكود
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 2. إصلاح gradle-wrapper.jar
       - name: Fix Gradle Wrapper JAR
         run: |
           JAR_SIZE=$(wc -c < gradle/wrapper/gradle-wrapper.jar)
+          echo "Current JAR size: $JAR_SIZE bytes"
           if [ "$JAR_SIZE" -lt 10000 ]; then
+            echo "⚠️  gradle-wrapper.jar is a Git LFS pointer — downloading real JAR..."
             GRADLE_VERSION=$(grep -oP '(?<=gradle-)\d+\.\d+(\.\d+)?(?=-)' gradle/wrapper/gradle-wrapper.properties)
-            curl -fsSL "https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}/gradle/wrapper/gradle-wrapper.jar" -o gradle/wrapper/gradle-wrapper.jar || true
+            echo "Gradle version detected: $GRADLE_VERSION"
+            curl -fsSL \
+              "https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}/gradle/wrapper/gradle-wrapper.jar" \
+              -o gradle/wrapper/gradle-wrapper.jar \
+            || curl -fsSL \
+              "https://github.com/nicowillis/gradle-wrapper-jar/releases/latest/download/gradle-wrapper.jar" \
+              -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null \
+            || true
+            echo "✅ New JAR size: $(wc -c < gradle/wrapper/gradle-wrapper.jar) bytes"
+          else
+            echo "✅ gradle-wrapper.jar is valid ($JAR_SIZE bytes)"
           fi
 
+      # 3. تثبيت Java
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -74,48 +142,93 @@ jobs:
           distribution: temurin
           cache: gradle
 
+      # 4. تثبيت NDK + CMake تلقائياً
       - name: Install NDK & CMake
         run: |
           echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
             "ndk;${{ env.NDK_VERSION }}" \
             "cmake;${{ env.CMAKE_VERSION }}"
 
+      # 5. تثبيت تبعيات البناء (make, perl) – قد تكون مثبتة مسبقاً لكن للتأكيد
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y make perl
 
+      # 6. سحب FreeRDP مباشرة (git clone)
       - name: Clone FreeRDP source
         run: |
           if [ ! -d "${{ env.FREERDP_PATH }}/.git" ]; then
-            git clone --depth 1 --branch ${{ env.FREERDP_TAG }} --recurse-submodules --shallow-submodules \
-              https://github.com/FreeRDP/FreeRDP.git ${{ env.FREERDP_PATH }}
+            echo "📥 Cloning FreeRDP ${{ env.FREERDP_TAG }}..."
+            git clone \
+              --depth 1 \
+              --branch ${{ env.FREERDP_TAG }} \
+              --recurse-submodules \
+              --shallow-submodules \
+              https://github.com/FreeRDP/FreeRDP.git \
+              ${{ env.FREERDP_PATH }}
+            echo "✅ FreeRDP cloned successfully"
+          else
+            echo "✅ FreeRDP already present"
           fi
 
+      # 7. Cache لـ OpenSSL المُجمَّع (يُبنى مرة واحدة لكل إصدار NDK)
       - name: Restore OpenSSL build cache
         id: openssl-cache
         uses: actions/cache@v4
         with:
           path: ${{ env.OPENSSL_BUILD_DIR }}
-          key: openssl-\( {{ env.NDK_VERSION }}- \){{ hashFiles('app/src/main/cpp/FreeRDP/scripts/android-build-openssl.sh') }}
+          key: openssl-${{ env.NDK_VERSION }}-${{ hashFiles('app/src/main/cpp/FreeRDP/scripts/android-build-openssl.sh') }}
           restore-keys: openssl-${{ env.NDK_VERSION }}-
 
-      # ====================== إصلاح OpenSSL ======================
+      # 8. بناء OpenSSL لـ arm64-v8a و x86_64 إذا لم يكن في cache
       - name: Build OpenSSL for Android
         if: steps.openssl-cache.outputs.cache-hit != 'true'
         run: |
-          export ANDROID_NDK_ROOT=\( ANDROID_SDK_ROOT/ndk/ \){{ env.NDK_VERSION }}
+          export ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}
           export ANDROID_SDK=$ANDROID_SDK_ROOT
-          
-          TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
-          export PATH="$TOOLCHAIN/bin:$PATH"
 
+          # ── تثبيت OpenSSL source ────────────────────────────────────
           OPENSSL_VERSION="3.3.2"
           OPENSSL_TAR="openssl-${OPENSSL_VERSION}.tar.gz"
-          curl -fsSL "https://www.openssl.org/source/\( {OPENSSL_TAR}" -o /tmp/ \){OPENSSL_TAR}
+          curl -fsSL "https://www.openssl.org/source/${OPENSSL_TAR}" -o /tmp/${OPENSSL_TAR}
           tar -xf /tmp/${OPENSSL_TAR} -C /tmp
 
-          API=26
-          BUILD_ROOT=\( {{ github.workspace }}/ \){{ env.OPENSSL_BUILD_DIR }}
+          TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
+          API=26   # minSdk من build.gradle.kts
+          BUILD_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}
           mkdir -p "$BUILD_ROOT"
+
+          # إنشاء wrapper scripts تحاكي أسماء GCC التقليدية المطلوبة من OpenSSL
+          # OpenSSL يبحث عن aarch64-linux-android-gcc في PATH — نوفّره كـ wrapper لـ clang
+          WRAPPERS_DIR="$BUILD_ROOT/wrappers"
+          mkdir -p "$WRAPPERS_DIR"
+
+          make_wrapper() {
+            local NAME=$1   # e.g. aarch64-linux-android-gcc
+            local CMD=$2    # e.g. /path/to/aarch64-linux-android26-clang
+            printf '#!/bin/sh\nexec "%s" "$@"\n' "$CMD" > "$WRAPPERS_DIR/$NAME"
+            chmod +x "$WRAPPERS_DIR/$NAME"
+          }
+
+          # arm64-v8a wrappers
+          make_wrapper "aarch64-linux-android-gcc"      "$TOOLCHAIN/bin/aarch64-linux-android${API}-clang"
+          make_wrapper "aarch64-linux-android-g++"      "$TOOLCHAIN/bin/aarch64-linux-android${API}-clang++"
+          make_wrapper "aarch64-linux-android-ar"       "$TOOLCHAIN/bin/llvm-ar"
+          make_wrapper "aarch64-linux-android-ranlib"   "$TOOLCHAIN/bin/llvm-ranlib"
+          make_wrapper "aarch64-linux-android-strip"    "$TOOLCHAIN/bin/llvm-strip"
+          make_wrapper "aarch64-linux-android-ld"       "$TOOLCHAIN/bin/ld.lld"
+          make_wrapper "aarch64-linux-android-nm"       "$TOOLCHAIN/bin/llvm-nm"
+
+          # x86_64 wrappers
+          make_wrapper "x86_64-linux-android-gcc"       "$TOOLCHAIN/bin/x86_64-linux-android${API}-clang"
+          make_wrapper "x86_64-linux-android-g++"       "$TOOLCHAIN/bin/x86_64-linux-android${API}-clang++"
+          make_wrapper "x86_64-linux-android-ar"        "$TOOLCHAIN/bin/llvm-ar"
+          make_wrapper "x86_64-linux-android-ranlib"    "$TOOLCHAIN/bin/llvm-ranlib"
+          make_wrapper "x86_64-linux-android-strip"     "$TOOLCHAIN/bin/llvm-strip"
+          make_wrapper "x86_64-linux-android-ld"        "$TOOLCHAIN/bin/ld.lld"
+          make_wrapper "x86_64-linux-android-nm"        "$TOOLCHAIN/bin/llvm-nm"
+
+          # إضافة wrappers و toolchain إلى PATH
+          export PATH="$WRAPPERS_DIR:$TOOLCHAIN/bin:$PATH"
 
           build_openssl() {
             local ABI=$1
@@ -123,20 +236,21 @@ jobs:
             local TARGET=$3
 
             echo "🔨 Building OpenSSL for $ABI ..."
-            echo "   CC = \( {TARGET} \){API}-clang"
-            
             cd /tmp/openssl-${OPENSSL_VERSION}
+
+            # تنظيف من أي بناء سابق
             make clean 2>/dev/null || true
 
-            export CC=\( {TARGET} \){API}-clang
-            export CXX=\( {TARGET} \){API}-clang++
-            export AR=llvm-ar
-            export RANLIB=llvm-ranlib
-            export STRIP=llvm-strip
-            export LD=ld.lld
-            export NM=llvm-nm
+            # تعيين المترجم عبر متغيرات البيئة (clang مباشرة)
+            export CC="$TOOLCHAIN/bin/${TARGET}${API}-clang"
+            export CXX="$TOOLCHAIN/bin/${TARGET}${API}-clang++"
+            export AR="$TOOLCHAIN/bin/llvm-ar"
+            export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
+            export STRIP="$TOOLCHAIN/bin/llvm-strip"
+            export LD="$TOOLCHAIN/bin/ld.lld"
+            export NM="$TOOLCHAIN/bin/llvm-nm"
 
-            local OUT="\( BUILD_ROOT/openssl- \){ABI}"
+            local OUT="$BUILD_ROOT/openssl-${ABI}"
             mkdir -p "$OUT"
 
             ./Configure ${ARCH} \
@@ -151,15 +265,16 @@ jobs:
             echo "✅ OpenSSL built for $ABI → $OUT"
           }
 
-          build_openssl "arm64-v8a" "android-arm64" "aarch64-linux-android"
+          build_openssl "arm64-v8a" "android-arm64"  "aarch64-linux-android"
           build_openssl "x86_64"   "android-x86_64" "x86_64-linux-android"
 
           echo "✅ OpenSSL built successfully for all ABIs"
-      # ============================================================
 
+      # 9. تعيين متغير البيئة ANDROID_OPENSSL_ROOT لاستخدامه في Gradle
       - name: Set OpenSSL root environment variable
-        run: echo "ANDROID_OPENSSL_ROOT=\( {{ github.workspace }}/ \){{ env.OPENSSL_BUILD_DIR }}" >> $GITHUB_ENV
+        run: echo "ANDROID_OPENSSL_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}" >> $GITHUB_ENV
 
+      # 10. Cache لمخرجات FreeRDP المُجمَّعة (يعتمد على وجود OpenSSL)
       - name: Restore FreeRDP build cache
         id: freerdp-cache
         uses: actions/cache@v4
@@ -167,9 +282,18 @@ jobs:
           path: |
             app/.cxx
             app/build/intermediates/cmake
-          key: freerdp-\( {{ env.NDK_VERSION }}- \){{ env.FREERDP_TAG }}-${{ hashFiles('app/src/main/cpp/CMakeLists.txt', 'app/src/main/cpp/hexrdp_jni.c') }}
-          restore-keys: freerdp-\( {{ env.NDK_VERSION }}- \){{ env.FREERDP_TAG }}-
+          key: freerdp-${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}-${{ hashFiles('app/src/main/cpp/CMakeLists.txt', 'app/src/main/cpp/hexrdp_jni.c') }}
+          restore-keys: freerdp-${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}-
 
+      - name: Log build plan
+        run: |
+          if [ "${{ steps.freerdp-cache.outputs.cache-hit }}" == "true" ]; then
+            echo "⚡ Cache HIT — FreeRDP بُني سابقاً، البناء سيكون سريعاً"
+          else
+            echo "🔨 Cache MISS — سيُبنى FreeRDP من المصدر (30-60 دقيقة، مرة واحدة فقط)"
+          fi
+
+      # 11. بناء APK مع تمرير مسار OpenSSL
       - name: Build Debug APK
         run: |
           chmod +x gradlew
@@ -177,6 +301,7 @@ jobs:
             -DANDROID_OPENSSL_ROOT=$ANDROID_OPENSSL_ROOT \
             --no-daemon --stacktrace
 
+      # 12. رفع الـ APK كـ artifact
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -184,6 +309,7 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 14
 
+  # ── Release (APK موقّع + GitHub Release) ────────────────────────
   release:
     name: Release
     runs-on: ubuntu-latest
@@ -199,7 +325,10 @@ jobs:
           JAR_SIZE=$(wc -c < gradle/wrapper/gradle-wrapper.jar)
           if [ "$JAR_SIZE" -lt 10000 ]; then
             GRADLE_VERSION=$(grep -oP '(?<=gradle-)\d+\.\d+(\.\d+)?(?=-)' gradle/wrapper/gradle-wrapper.properties)
-            curl -fsSL "https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}/gradle/wrapper/gradle-wrapper.jar" -o gradle/wrapper/gradle-wrapper.jar || true
+            curl -fsSL \
+              "https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}/gradle/wrapper/gradle-wrapper.jar" \
+              -o gradle/wrapper/gradle-wrapper.jar \
+            || true
           fi
 
       - name: Setup Java
@@ -221,8 +350,13 @@ jobs:
       - name: Clone FreeRDP source
         run: |
           if [ ! -d "${{ env.FREERDP_PATH }}/.git" ]; then
-            git clone --depth 1 --branch ${{ env.FREERDP_TAG }} --recurse-submodules --shallow-submodules \
-              https://github.com/FreeRDP/FreeRDP.git ${{ env.FREERDP_PATH }}
+            git clone \
+              --depth 1 \
+              --branch ${{ env.FREERDP_TAG }} \
+              --recurse-submodules \
+              --shallow-submodules \
+              https://github.com/FreeRDP/FreeRDP.git \
+              ${{ env.FREERDP_PATH }}
           fi
 
       - name: Restore OpenSSL build cache
@@ -230,27 +364,53 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.OPENSSL_BUILD_DIR }}
-          key: openssl-\( {{ env.NDK_VERSION }}- \){{ hashFiles('app/src/main/cpp/FreeRDP/scripts/android-build-openssl.sh') }}
+          key: openssl-${{ env.NDK_VERSION }}-${{ hashFiles('app/src/main/cpp/FreeRDP/scripts/android-build-openssl.sh') }}
           restore-keys: openssl-${{ env.NDK_VERSION }}-
 
-      # ====================== إصلاح OpenSSL (Release) ======================
       - name: Build OpenSSL for Android
         if: steps.openssl-cache.outputs.cache-hit != 'true'
         run: |
-          export ANDROID_NDK_ROOT=\( ANDROID_SDK_ROOT/ndk/ \){{ env.NDK_VERSION }}
+          export ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}
           export ANDROID_SDK=$ANDROID_SDK_ROOT
-          
-          TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
-          export PATH="$TOOLCHAIN/bin:$PATH"
 
           OPENSSL_VERSION="3.3.2"
           OPENSSL_TAR="openssl-${OPENSSL_VERSION}.tar.gz"
-          curl -fsSL "https://www.openssl.org/source/\( {OPENSSL_TAR}" -o /tmp/ \){OPENSSL_TAR}
+          curl -fsSL "https://www.openssl.org/source/${OPENSSL_TAR}" -o /tmp/${OPENSSL_TAR}
           tar -xf /tmp/${OPENSSL_TAR} -C /tmp
 
+          TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
           API=26
-          BUILD_ROOT=\( {{ github.workspace }}/ \){{ env.OPENSSL_BUILD_DIR }}
+          BUILD_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}
           mkdir -p "$BUILD_ROOT"
+
+          # إنشاء wrapper scripts تحاكي أسماء GCC التقليدية المطلوبة من OpenSSL
+          WRAPPERS_DIR="$BUILD_ROOT/wrappers"
+          mkdir -p "$WRAPPERS_DIR"
+
+          make_wrapper() {
+            local NAME=$1
+            local CMD=$2
+            printf '#!/bin/sh\nexec "%s" "$@"\n' "$CMD" > "$WRAPPERS_DIR/$NAME"
+            chmod +x "$WRAPPERS_DIR/$NAME"
+          }
+
+          make_wrapper "aarch64-linux-android-gcc"      "$TOOLCHAIN/bin/aarch64-linux-android${API}-clang"
+          make_wrapper "aarch64-linux-android-g++"      "$TOOLCHAIN/bin/aarch64-linux-android${API}-clang++"
+          make_wrapper "aarch64-linux-android-ar"       "$TOOLCHAIN/bin/llvm-ar"
+          make_wrapper "aarch64-linux-android-ranlib"   "$TOOLCHAIN/bin/llvm-ranlib"
+          make_wrapper "aarch64-linux-android-strip"    "$TOOLCHAIN/bin/llvm-strip"
+          make_wrapper "aarch64-linux-android-ld"       "$TOOLCHAIN/bin/ld.lld"
+          make_wrapper "aarch64-linux-android-nm"       "$TOOLCHAIN/bin/llvm-nm"
+
+          make_wrapper "x86_64-linux-android-gcc"       "$TOOLCHAIN/bin/x86_64-linux-android${API}-clang"
+          make_wrapper "x86_64-linux-android-g++"       "$TOOLCHAIN/bin/x86_64-linux-android${API}-clang++"
+          make_wrapper "x86_64-linux-android-ar"        "$TOOLCHAIN/bin/llvm-ar"
+          make_wrapper "x86_64-linux-android-ranlib"    "$TOOLCHAIN/bin/llvm-ranlib"
+          make_wrapper "x86_64-linux-android-strip"     "$TOOLCHAIN/bin/llvm-strip"
+          make_wrapper "x86_64-linux-android-ld"        "$TOOLCHAIN/bin/ld.lld"
+          make_wrapper "x86_64-linux-android-nm"        "$TOOLCHAIN/bin/llvm-nm"
+
+          export PATH="$WRAPPERS_DIR:$TOOLCHAIN/bin:$PATH"
 
           build_openssl() {
             local ABI=$1
@@ -258,20 +418,18 @@ jobs:
             local TARGET=$3
 
             echo "🔨 Building OpenSSL for $ABI ..."
-            echo "   CC = \( {TARGET} \){API}-clang"
-            
             cd /tmp/openssl-${OPENSSL_VERSION}
             make clean 2>/dev/null || true
 
-            export CC=\( {TARGET} \){API}-clang
-            export CXX=\( {TARGET} \){API}-clang++
-            export AR=llvm-ar
-            export RANLIB=llvm-ranlib
-            export STRIP=llvm-strip
-            export LD=ld.lld
-            export NM=llvm-nm
+            export CC="$TOOLCHAIN/bin/${TARGET}${API}-clang"
+            export CXX="$TOOLCHAIN/bin/${TARGET}${API}-clang++"
+            export AR="$TOOLCHAIN/bin/llvm-ar"
+            export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
+            export STRIP="$TOOLCHAIN/bin/llvm-strip"
+            export LD="$TOOLCHAIN/bin/ld.lld"
+            export NM="$TOOLCHAIN/bin/llvm-nm"
 
-            local OUT="\( BUILD_ROOT/openssl- \){ABI}"
+            local OUT="$BUILD_ROOT/openssl-${ABI}"
             mkdir -p "$OUT"
 
             ./Configure ${ARCH} \
@@ -286,14 +444,11 @@ jobs:
             echo "✅ OpenSSL built for $ABI → $OUT"
           }
 
-          build_openssl "arm64-v8a" "android-arm64" "aarch64-linux-android"
+          build_openssl "arm64-v8a" "android-arm64"  "aarch64-linux-android"
           build_openssl "x86_64"   "android-x86_64" "x86_64-linux-android"
 
-          echo "✅ OpenSSL built successfully for all ABIs"
-      # =====================================================================
-
       - name: Set OpenSSL root environment variable
-        run: echo "ANDROID_OPENSSL_ROOT=\( {{ github.workspace }}/ \){{ env.OPENSSL_BUILD_DIR }}" >> $GITHUB_ENV
+        run: echo "ANDROID_OPENSSL_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}" >> $GITHUB_ENV
 
       - name: Restore FreeRDP build cache
         uses: actions/cache@v4
@@ -301,8 +456,8 @@ jobs:
           path: |
             app/.cxx
             app/build/intermediates/cmake
-          key: freerdp-\( {{ env.NDK_VERSION }}- \){{ env.FREERDP_TAG }}-${{ hashFiles('app/src/main/cpp/CMakeLists.txt', 'app/src/main/cpp/hexrdp_jni.c') }}
-          restore-keys: freerdp-\( {{ env.NDK_VERSION }}- \){{ env.FREERDP_TAG }}-
+          key: freerdp-${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}-${{ hashFiles('app/src/main/cpp/CMakeLists.txt', 'app/src/main/cpp/hexrdp_jni.c') }}
+          restore-keys: freerdp-${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}-
 
       - name: Decode keystore
         run: |
