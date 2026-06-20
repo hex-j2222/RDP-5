@@ -178,10 +178,16 @@ jobs:
       - name: Patch FreeRDP for Android
         run: |
           LIBFREERDP_CMAKE="${{ github.workspace }}/${{ env.FREERDP_PATH }}/libfreerdp/CMakeLists.txt"
-          # السطر 84: find_package(SWScale REQUIRED) → find_package(SWScale QUIET)
+          # 1. تحويل REQUIRED → QUIET حتى لا يفشل البناء إذا لم يُوجَد SWScale
           sed -i 's/find_package(SWScale REQUIRED)/find_package(SWScale QUIET)/g' "$LIBFREERDP_CMAKE"
-          # تأكيد التعديل
-          grep -n "SWScale" "$LIBFREERDP_CMAKE"
+
+          # 2. حذف أي سطر يُضيف SWScale_INCLUDE_DIR أو SWScale_LIBRARY إلى targets
+          #    عند QUIET وعدم الوجود تكون قيمتها "*-NOTFOUND" مما يسبب خطأ CMake Generate
+          sed -i '/SWScale_INCLUDE_DIR/d' "$LIBFREERDP_CMAKE"
+          sed -i '/SWScale_LIBRARY/d'     "$LIBFREERDP_CMAKE"
+
+          # 3. تأكيد التعديل
+          grep -n "SWScale" "$LIBFREERDP_CMAKE" || echo "✅ No SWScale references remain"
           echo "✅ FreeRDP patched"
 
       # 7. Cache لـ OpenSSL المُجمَّع (يُبنى مرة واحدة لكل إصدار NDK)
@@ -398,10 +404,16 @@ jobs:
       - name: Patch FreeRDP for Android
         run: |
           LIBFREERDP_CMAKE="${{ github.workspace }}/${{ env.FREERDP_PATH }}/libfreerdp/CMakeLists.txt"
-          # السطر 84: find_package(SWScale REQUIRED) → find_package(SWScale QUIET)
+          # 1. تحويل REQUIRED → QUIET حتى لا يفشل البناء إذا لم يُوجَد SWScale
           sed -i 's/find_package(SWScale REQUIRED)/find_package(SWScale QUIET)/g' "$LIBFREERDP_CMAKE"
-          # تأكيد التعديل
-          grep -n "SWScale" "$LIBFREERDP_CMAKE"
+
+          # 2. حذف أي سطر يُضيف SWScale_INCLUDE_DIR أو SWScale_LIBRARY إلى targets
+          #    عند QUIET وعدم الوجود تكون قيمتها "*-NOTFOUND" مما يسبب خطأ CMake Generate
+          sed -i '/SWScale_INCLUDE_DIR/d' "$LIBFREERDP_CMAKE"
+          sed -i '/SWScale_LIBRARY/d'     "$LIBFREERDP_CMAKE"
+
+          # 3. تأكيد التعديل
+          grep -n "SWScale" "$LIBFREERDP_CMAKE" || echo "✅ No SWScale references remain"
           echo "✅ FreeRDP patched"
 
       - name: Restore OpenSSL build cache
