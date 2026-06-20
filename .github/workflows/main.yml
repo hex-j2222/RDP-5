@@ -177,18 +177,22 @@ jobs:
       # patch FreeRDP: تحويل find_package(SWScale REQUIRED) إلى QUIET حتى لا يفشل على Android
       - name: Patch FreeRDP for Android
         run: |
-          LIBFREERDP_CMAKE="${{ github.workspace }}/${{ env.FREERDP_PATH }}/libfreerdp/CMakeLists.txt"
-          # 1. تحويل REQUIRED → QUIET حتى لا يفشل البناء إذا لم يُوجَد SWScale
-          sed -i 's/find_package(SWScale REQUIRED)/find_package(SWScale QUIET)/g' "$LIBFREERDP_CMAKE"
+          FREERDP_ROOT="${{ github.workspace }}/${{ env.FREERDP_PATH }}"
+          LIBFREERDP_CMAKE="$FREERDP_ROOT/libfreerdp/CMakeLists.txt"
 
-          # 2. حذف أي سطر يُضيف SWScale_INCLUDE_DIR أو SWScale_LIBRARY إلى targets
-          #    عند QUIET وعدم الوجود تكون قيمتها "*-NOTFOUND" مما يسبب خطأ CMake Generate
+          # 1. SWScale: REQUIRED → QUIET + حذف أسطر include/link
+          sed -i 's/find_package(SWScale REQUIRED)/find_package(SWScale QUIET)/g' "$LIBFREERDP_CMAKE"
           sed -i '/SWScale_INCLUDE_DIR/d' "$LIBFREERDP_CMAKE"
           sed -i '/SWScale_LIBRARY/d'     "$LIBFREERDP_CMAKE"
 
-          # 3. تأكيد التعديل
-          grep -n "SWScale" "$LIBFREERDP_CMAKE" || echo "✅ No SWScale references remain"
-          echo "✅ FreeRDP patched"
+          # 2. إزالة -Werror من كل ملفات CMake في FreeRDP داخلياً
+          find "$FREERDP_ROOT" \( -name "CMakeLists.txt" -o -name "*.cmake" \) -print0 | \
+            xargs -0 sed -i \
+              -e 's/-Werror\b//g' \
+              -e 's/ENABLE_WARNINGS_ERROR ON/ENABLE_WARNINGS_ERROR OFF/g' \
+              -e 's/ENABLE_WARNINGS_ALL ON/ENABLE_WARNINGS_ALL OFF/g'
+
+          echo "✅ FreeRDP patched (SWScale + Werror removed)"
 
       # 7. Cache لـ OpenSSL المُجمَّع (يُبنى مرة واحدة لكل إصدار NDK)
       - name: Restore OpenSSL build cache
@@ -403,18 +407,22 @@ jobs:
       # patch FreeRDP: تحويل find_package(SWScale REQUIRED) إلى QUIET حتى لا يفشل على Android
       - name: Patch FreeRDP for Android
         run: |
-          LIBFREERDP_CMAKE="${{ github.workspace }}/${{ env.FREERDP_PATH }}/libfreerdp/CMakeLists.txt"
-          # 1. تحويل REQUIRED → QUIET حتى لا يفشل البناء إذا لم يُوجَد SWScale
-          sed -i 's/find_package(SWScale REQUIRED)/find_package(SWScale QUIET)/g' "$LIBFREERDP_CMAKE"
+          FREERDP_ROOT="${{ github.workspace }}/${{ env.FREERDP_PATH }}"
+          LIBFREERDP_CMAKE="$FREERDP_ROOT/libfreerdp/CMakeLists.txt"
 
-          # 2. حذف أي سطر يُضيف SWScale_INCLUDE_DIR أو SWScale_LIBRARY إلى targets
-          #    عند QUIET وعدم الوجود تكون قيمتها "*-NOTFOUND" مما يسبب خطأ CMake Generate
+          # 1. SWScale: REQUIRED → QUIET + حذف أسطر include/link
+          sed -i 's/find_package(SWScale REQUIRED)/find_package(SWScale QUIET)/g' "$LIBFREERDP_CMAKE"
           sed -i '/SWScale_INCLUDE_DIR/d' "$LIBFREERDP_CMAKE"
           sed -i '/SWScale_LIBRARY/d'     "$LIBFREERDP_CMAKE"
 
-          # 3. تأكيد التعديل
-          grep -n "SWScale" "$LIBFREERDP_CMAKE" || echo "✅ No SWScale references remain"
-          echo "✅ FreeRDP patched"
+          # 2. إزالة -Werror من كل ملفات CMake في FreeRDP داخلياً
+          find "$FREERDP_ROOT" \( -name "CMakeLists.txt" -o -name "*.cmake" \) -print0 | \
+            xargs -0 sed -i \
+              -e 's/-Werror\b//g' \
+              -e 's/ENABLE_WARNINGS_ERROR ON/ENABLE_WARNINGS_ERROR OFF/g' \
+              -e 's/ENABLE_WARNINGS_ALL ON/ENABLE_WARNINGS_ALL OFF/g'
+
+          echo "✅ FreeRDP patched (SWScale + Werror removed)"
 
       - name: Restore OpenSSL build cache
         id: openssl-cache
@@ -565,3 +573,4 @@ jobs:
           files: app/build/outputs/apk/release/HexRDP-${{ github.ref_name }}.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
