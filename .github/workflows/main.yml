@@ -278,31 +278,49 @@ jobs:
       - name: Set OpenSSL root environment variable
         run: echo "ANDROID_OPENSSL_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}" >> $GITHUB_ENV
 
-      # 10. Cache لمخرجات FreeRDP المُجمَّعة (يعتمد على وجود OpenSSL)
-      - name: Restore FreeRDP build cache
+      # 10. Cache لـ FreeRDP prebuilt
+      - name: Restore FreeRDP prebuilt cache
         id: freerdp-cache
         uses: actions/cache@v4
         with:
-          path: |
-            app/.cxx
-            app/build/intermediates/cmake
-          key: freerdp-${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}-${{ hashFiles('app/src/main/cpp/CMakeLists.txt', 'app/src/main/cpp/hexrdp_jni.c') }}
-          restore-keys: freerdp-${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}-
+          path: app/src/main/cpp/freerdp-prebuilt
+          key: freerdp-prebuilt-${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}
 
-      - name: Log build plan
+      # 11. بناء FreeRDP كـ prebuilt منفصل عبر cmake مباشرة
+      # هذا يتجنب كل مشاكل add_subdirectory مع NDK toolchain
+      - name: Build FreeRDP prebuilt
+        if: steps.freerdp-cache.outputs.cache-hit != 'true'
         run: |
-          if [ "${{ steps.freerdp-cache.outputs.cache-hit }}" == "true" ]; then
-            echo "⚡ Cache HIT — FreeRDP بُني سابقاً، البناء سيكون سريعاً"
-          else
-            echo "🔨 Cache MISS — سيُبنى FreeRDP من المصدر (30-60 دقيقة، مرة واحدة فقط)"
-          fi
+          TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
+          OPENSSL_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}
+          PREBUILT_ROOT=${{ github.workspace }}/app/src/main/cpp/freerdp-prebuilt
+          FREERDP_SRC=${{ github.workspace }}/${{ env.FREERDP_PATH }}
 
-      # 11. بناء APK مع تمرير مسار OpenSSL
+          build_freerdp() {
+            local ABI=$1
+            local ANDROID_ARCH=$2
+            local API=26
+
+            echo "🔨 Building FreeRDP prebuilt for $ABI ..."
+            local OUT="$PREBUILT_ROOT/$ABI"
+            local BUILD_DIR="/tmp/freerdp-build-$ABI"
+            mkdir -p "$OUT" "$BUILD_DIR"
+
+            cmake -S "$FREERDP_SRC" -B "$BUILD_DIR"               -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake               -DANDROID_ABI=$ABI               -DANDROID_PLATFORM=android-$API               -DCMAKE_BUILD_TYPE=Release               -DCMAKE_INSTALL_PREFIX="$OUT"               -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT/openssl-$ABI"               -DOPENSSL_INCLUDE_DIR="$OPENSSL_ROOT/openssl-$ABI/include"               -DOPENSSL_CRYPTO_LIBRARY="$OPENSSL_ROOT/openssl-$ABI/lib/libcrypto.a"               -DOPENSSL_SSL_LIBRARY="$OPENSSL_ROOT/openssl-$ABI/lib/libssl.a"               -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH               -DWITH_CLIENT=ON               -DWITH_SERVER=OFF               -DWITH_SHADOW=OFF               -DWITH_PLATFORM_SERVER=OFF               -DWITH_SAMPLE=OFF               -DWITH_FFMPEG=OFF               -DWITH_DSP_FFMPEG=OFF               -DWITH_VIDEO_FFMPEG=OFF               -DWITH_CUPS=OFF               -DWITH_PULSE=OFF               -DWITH_X11=OFF               -DWITH_WAYLAND=OFF               -DBUILD_TESTING=OFF               -DBUILD_SHARED_LIBS=OFF               -GNinja
+
+            cmake --build "$BUILD_DIR" --parallel $(nproc)
+            cmake --install "$BUILD_DIR"
+            echo "✅ FreeRDP prebuilt for $ABI → $OUT"
+          }
+
+          build_freerdp "arm64-v8a" "aarch64-linux-android"
+          build_freerdp "x86_64"    "x86_64-linux-android"
+          echo "✅ FreeRDP prebuilt complete"
+
+      # 12. بناء APK — Gradle يستخدم prebuilt libs مباشرة عبر CMakeLists.txt
       - name: Build Debug APK
         run: |
           chmod +x gradlew
-          # ANDROID_OPENSSL_ROOT مُعيَّن في $GITHUB_ENV من step سابق،
-          # Gradle يقرأه تلقائياً عبر System.getenv() في build.gradle.kts
           ./gradlew assembleDebug \
             --no-daemon --stacktrace
 
@@ -457,14 +475,36 @@ jobs:
       - name: Set OpenSSL root environment variable
         run: echo "ANDROID_OPENSSL_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}" >> $GITHUB_ENV
 
-      - name: Restore FreeRDP build cache
+      - name: Restore FreeRDP prebuilt cache
+        id: freerdp-cache-release
         uses: actions/cache@v4
         with:
-          path: |
-            app/.cxx
-            app/build/intermediates/cmake
-          key: freerdp-${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}-${{ hashFiles('app/src/main/cpp/CMakeLists.txt', 'app/src/main/cpp/hexrdp_jni.c') }}
-          restore-keys: freerdp-${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}-
+          path: app/src/main/cpp/freerdp-prebuilt
+          key: freerdp-prebuilt-${{ env.NDK_VERSION }}-${{ env.FREERDP_TAG }}
+
+      - name: Build FreeRDP prebuilt
+        if: steps.freerdp-cache-release.outputs.cache-hit != 'true'
+        run: |
+          TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
+          OPENSSL_ROOT=${{ github.workspace }}/${{ env.OPENSSL_BUILD_DIR }}
+          PREBUILT_ROOT=${{ github.workspace }}/app/src/main/cpp/freerdp-prebuilt
+          FREERDP_SRC=${{ github.workspace }}/${{ env.FREERDP_PATH }}
+
+          build_freerdp() {
+            local ABI=$1
+            local API=26
+            local OUT="$PREBUILT_ROOT/$ABI"
+            local BUILD_DIR="/tmp/freerdp-build-$ABI"
+            mkdir -p "$OUT" "$BUILD_DIR"
+
+            cmake -S "$FREERDP_SRC" -B "$BUILD_DIR"               -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake               -DANDROID_ABI=$ABI               -DANDROID_PLATFORM=android-$API               -DCMAKE_BUILD_TYPE=Release               -DCMAKE_INSTALL_PREFIX="$OUT"               -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT/openssl-$ABI"               -DOPENSSL_INCLUDE_DIR="$OPENSSL_ROOT/openssl-$ABI/include"               -DOPENSSL_CRYPTO_LIBRARY="$OPENSSL_ROOT/openssl-$ABI/lib/libcrypto.a"               -DOPENSSL_SSL_LIBRARY="$OPENSSL_ROOT/openssl-$ABI/lib/libssl.a"               -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH               -DWITH_CLIENT=ON -DWITH_SERVER=OFF -DWITH_SHADOW=OFF               -DWITH_PLATFORM_SERVER=OFF -DWITH_SAMPLE=OFF               -DWITH_FFMPEG=OFF -DWITH_DSP_FFMPEG=OFF -DWITH_VIDEO_FFMPEG=OFF               -DWITH_CUPS=OFF -DWITH_PULSE=OFF -DWITH_X11=OFF -DWITH_WAYLAND=OFF               -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=OFF -GNinja
+
+            cmake --build "$BUILD_DIR" --parallel $(nproc)
+            cmake --install "$BUILD_DIR"
+          }
+
+          build_freerdp "arm64-v8a"
+          build_freerdp "x86_64"
 
       - name: Decode keystore
         run: |
