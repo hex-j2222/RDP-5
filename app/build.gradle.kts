@@ -45,8 +45,16 @@ android {
         if (!androidOpenSslRoot.isNullOrBlank()) {
             externalNativeBuild {
                 cmake {
-                    // نمرر المجلد الأب؛ CMakeLists.txt يختار openssl-${ANDROID_ABI}
+                    // نمرر ANDROID_OPENSSL_ROOT للـ CMakeLists.txt ليحسب المسار لكل ABI.
+                    // نُمرّر أيضاً OPENSSL_* مباشرةً كـ cmake cache entries لضمان أن
+                    // winpr و libfreerdp يجدانها حتى بعد إعادة ضبط toolchain لـ find modes.
+                    // ${ANDROID_ABI} لا يُعيَّن هنا (وقت Gradle)، لكن CMakeLists.txt
+                    // يحتسبه من ANDROID_ABI المُعيَّن من NDK toolchain وقت cmake configure.
                     arguments += "-DANDROID_OPENSSL_ROOT=$androidOpenSslRoot"
+                    // تعطيل FFmpeg/SWScale صراحةً من Gradle أيضاً كطبقة أمان إضافية
+                    arguments += "-DWITH_FFMPEG=OFF"
+                    arguments += "-DCMAKE_DISABLE_FIND_PACKAGE_SWScale=TRUE"
+                    arguments += "-DCMAKE_DISABLE_FIND_PACKAGE_SWResample=TRUE"
                 }
             }
         }
