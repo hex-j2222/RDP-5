@@ -58,14 +58,18 @@ if(EXISTS "${FREERDP_DIR}/CMakeLists.txt")
     set(WITH_SAMPLE OFF CACHE BOOL "" FORCE)
     set(CHANNEL_URBDRC OFF CACHE BOOL "" FORCE)
 
-    # تعطيل FFmpeg بشكل كامل — libfreerdp/CMakeLists.txt يستدعي
-    # find_package(SWScale REQUIRED) عندما يكون WITH_FFMPEG مفعّلاً.
-    # SWScale لا يتوفر في NDK sysroot ويسبب فشل الـ build.
-    set(WITH_FFMPEG OFF CACHE BOOL "" FORCE)
-    # منع أي استدعاء find_package لـ FFmpeg أو SWScale
+    # تعطيل FFmpeg وكل مكوناته — على Android لا يتوفر SWScale/FFmpeg في NDK sysroot.
+    # WITH_FFMPEG=OFF يُعطّل الـ feature عند مستوى FreeRDP/CMakeLists.txt،
+    # لكن libfreerdp/CMakeLists.txt يستدعي find_package(SWScale REQUIRED)
+    # بشرط WITH_DSP_FFMPEG (وليس WITH_FFMPEG مباشرة). يجب تعطيله صراحةً.
+    # ملاحظة: CMAKE_DISABLE_FIND_PACKAGE_SWScale لا يعمل مع REQUIRED packages،
+    # الحل الوحيد هو منع الكود من الوصول لـ find_package عبر WITH_DSP_FFMPEG=OFF.
+    set(WITH_FFMPEG     OFF CACHE BOOL "" FORCE)
+    set(WITH_DSP_FFMPEG OFF CACHE BOOL "" FORCE)
+    set(WITH_VIDEO_FFMPEG OFF CACHE BOOL "" FORCE)
+    # منع أي find_package لمكونات FFmpeg كطبقة أمان إضافية
+    # (تعمل فقط عند non-REQUIRED، لكن نضيفها للوضوح)
     set(CMAKE_DISABLE_FIND_PACKAGE_FFmpeg   TRUE CACHE BOOL "" FORCE)
-    set(CMAKE_DISABLE_FIND_PACKAGE_SWScale  TRUE CACHE BOOL "" FORCE)
-    set(CMAKE_DISABLE_FIND_PACKAGE_SWResample TRUE CACHE BOOL "" FORCE)
     set(CMAKE_DISABLE_FIND_PACKAGE_AVCodec  TRUE CACHE BOOL "" FORCE)
     set(CMAKE_DISABLE_FIND_PACKAGE_AVUtil   TRUE CACHE BOOL "" FORCE)
     set(CMAKE_DISABLE_FIND_PACKAGE_AVFormat TRUE CACHE BOOL "" FORCE)
