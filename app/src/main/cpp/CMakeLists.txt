@@ -24,8 +24,8 @@ else()
 endif()
 
 # ── الحالة 1: FreeRDP prebuilt موجود → بناء JNI bridge كامل ──────────
-if(EXISTS "${FREERDP_ABI_DIR}/lib/libfreerdp3.a" OR
-   EXISTS "${FREERDP_ABI_DIR}/lib/libfreerdp3.so")
+if(EXISTS "${FREERDP_ABI_DIR}/lib/libfreerdp3.so" OR
+   EXISTS "${FREERDP_ABI_DIR}/lib/libfreerdp3.a")
 
     message(STATUS "HexRDP: FreeRDP prebuilt found at ${FREERDP_ABI_DIR}")
 
@@ -38,19 +38,19 @@ if(EXISTS "${FREERDP_ABI_DIR}/lib/libfreerdp3.a" OR
     set_target_properties(OpenSSL::SSL PROPERTIES
         IMPORTED_LOCATION "${OPENSSL_ABI_DIR}/lib/libssl.a")
 
-    # WinPR
-    add_library(winpr STATIC IMPORTED)
+    # WinPR — السكربت الرسمي يبني .so
+    add_library(winpr SHARED IMPORTED)
     set_target_properties(winpr PROPERTIES
-        IMPORTED_LOCATION "${FREERDP_ABI_DIR}/lib/libwinpr3.a")
+        IMPORTED_LOCATION "${FREERDP_ABI_DIR}/lib/libwinpr3.so")
 
     # FreeRDP
-    add_library(freerdp STATIC IMPORTED)
+    add_library(freerdp SHARED IMPORTED)
     set_target_properties(freerdp PROPERTIES
-        IMPORTED_LOCATION "${FREERDP_ABI_DIR}/lib/libfreerdp3.a")
+        IMPORTED_LOCATION "${FREERDP_ABI_DIR}/lib/libfreerdp3.so")
 
-    add_library(freerdp-client STATIC IMPORTED)
+    add_library(freerdp-client SHARED IMPORTED)
     set_target_properties(freerdp-client PROPERTIES
-        IMPORTED_LOCATION "${FREERDP_ABI_DIR}/lib/libfreerdp-client3.a")
+        IMPORTED_LOCATION "${FREERDP_ABI_DIR}/lib/libfreerdp-client3.so")
 
     # JNI bridge
     add_library(hexrdp_jni SHARED hexrdp_jni.c)
