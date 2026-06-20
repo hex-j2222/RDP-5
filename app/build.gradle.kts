@@ -51,10 +51,12 @@ android {
                     // ${ANDROID_ABI} لا يُعيَّن هنا (وقت Gradle)، لكن CMakeLists.txt
                     // يحتسبه من ANDROID_ABI المُعيَّن من NDK toolchain وقت cmake configure.
                     arguments += "-DANDROID_OPENSSL_ROOT=$androidOpenSslRoot"
-                    // تعطيل FFmpeg/SWScale صراحةً من Gradle أيضاً كطبقة أمان إضافية
+                    // تعطيل FFmpeg من Gradle كطبقة أمان إضافية.
+                    // WITH_DSP_FFMPEG هو المتغير الحقيقي الذي يتحكم في
+                    // find_package(SWScale REQUIRED) داخل libfreerdp/CMakeLists.txt
                     arguments += "-DWITH_FFMPEG=OFF"
-                    arguments += "-DCMAKE_DISABLE_FIND_PACKAGE_SWScale=TRUE"
-                    arguments += "-DCMAKE_DISABLE_FIND_PACKAGE_SWResample=TRUE"
+                    arguments += "-DWITH_DSP_FFMPEG=OFF"
+                    arguments += "-DWITH_VIDEO_FFMPEG=OFF"
                 }
             }
         }
