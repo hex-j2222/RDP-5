@@ -59,7 +59,15 @@ if(EXISTS "${FREERDP_ABI_DIR}/lib/libfreerdp3.so" OR
     add_library(hexrdp_jni SHARED hexrdp_jni.c)
 
     target_include_directories(hexrdp_jni PRIVATE
-        ${FREERDP_ABI_DIR}/include
+        # FreeRDP 3.x installs headers under versioned subdirectories
+        # (include/freerdp3/freerdp/*.h, include/winpr3/winpr/*.h) — this is
+        # the official upstream layout (lets FreeRDP2/FreeRDP3 coexist), see
+        # https://www.linuxfromscratch.org/blfs/view/git/xsoft/freerdp.html
+        # ("Installed Directories: /usr/include/{freerdp3,...,winpr3}").
+        # Pointing at ${FREERDP_ABI_DIR}/include alone (without the freerdp3/
+        # winpr3 subfolders) causes: fatal error: 'freerdp/freerdp.h' file not found
+        ${FREERDP_ABI_DIR}/include/freerdp3
+        ${FREERDP_ABI_DIR}/include/winpr3
         ${OPENSSL_ABI_DIR}/include
     )
 
