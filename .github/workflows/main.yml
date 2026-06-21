@@ -361,6 +361,7 @@ jobs:
               -DWITH_LIBSYSTEMD=OFF \
               -DWITH_PCSC=OFF \
               -DWITH_FUSE=OFF \
+              -DWITH_MANPAGES=OFF \
               -DBUILD_TESTING=OFF \
               -DBUILD_SHARED_LIBS=ON \
               \
@@ -628,6 +629,7 @@ jobs:
               -DWITH_LIBSYSTEMD=OFF \
               -DWITH_PCSC=OFF \
               -DWITH_FUSE=OFF \
+              -DWITH_MANPAGES=OFF \
               -DBUILD_TESTING=OFF \
               -DBUILD_SHARED_LIBS=ON \
               \
