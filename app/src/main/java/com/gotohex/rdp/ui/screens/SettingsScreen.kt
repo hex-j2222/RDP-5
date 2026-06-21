@@ -12,8 +12,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack as ArrowBackMirrored
-import androidx.compose.material.icons.automirrored.outlined.Send as SendMirrored
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -62,7 +60,8 @@ fun SettingsScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = { navController.popBackStack() }) {
-                            Icon(ArrowBackMirrored, null, tint = CometTail)
+                            @Suppress("DEPRECATION")
+                            Icon(Icons.Default.ArrowBack, null, tint = CometTail)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -227,8 +226,10 @@ fun SettingsScreen(
                 // ── Developer ───────────────────────────────────────────
                 SettingsSection(title = stringResource(R.string.developer))
 
+                @Suppress("DEPRECATION")
+                val sendIcon = Icons.Outlined.Send
                 SettingsItem(
-                    icon = SendMirrored,
+                    icon = sendIcon,
                     title = "Telegram",
                     subtitle = stringResource(R.string.developer_telegram),
                     onClick = {
