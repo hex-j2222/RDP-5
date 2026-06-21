@@ -122,6 +122,11 @@ android {
             "ComposableLambdaParameterPosition",
             "CompositionLocalNaming",
             "RememberReturnType",
+            // The exact detector named in the CI crash log
+            // (java.lang.NegativeArraySizeException / IncompatibleClassChangeError
+            // in RememberInCompositionDetector). Kept disabled as a fallback even
+            // after pinning android.experimental.lint.version in gradle.properties.
+            "RememberInComposition",
             "UnrememberedAnimatable",
             "UnrememberedMutableInteractionSource",
             "UnrememberedMutableState",
