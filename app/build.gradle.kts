@@ -108,10 +108,12 @@ android {
     lint {
         abortOnError = false
         checkReleaseBuilds = false
-        // ComposableFlowOperatorDetector crashes with IncompatibleClassChangeError
-        // when the Compose Kotlin compiler plugin version mismatches the lint jar.
-        // Disabling until the upstream lint jar is updated.
+        // These detectors crash with IncompatibleClassChangeError due to a
+        // mismatch between the Kotlin Analysis API version used by lint jars
+        // and the one shipped with the Kotlin compiler plugin. Safe to disable
+        // until the upstream lint jars are updated.
         disable += "FlowOperatorInvokedInComposition"
+        disable += "NullSafeMutableLiveData"
     }
 }
 
@@ -176,3 +178,4 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
+
