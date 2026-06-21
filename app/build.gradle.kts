@@ -9,8 +9,10 @@ plugins {
 android {
     namespace = "com.gotohex.rdp"
     compileSdk = 35
-    // تثبيت إصدار NDK صراحةً — يمنع Gradle من اختيار أحدث NDK مثبّت على الجهاز/CI
-    ndkVersion = "26.3.11579264"
+    // تثبيت إصدار NDK صراحةً — يجب أن يطابق NDK_VERSION في .github/workflows/main.yml
+    // (وهو نفس NDK الذي تُبنى به مكتبات FreeRDP الجاهزة prebuilt). أي تعارض بين
+    // هذا الإصدار وإصدار NDK المثبَّت فعلياً في CI يفشل بالخطأ [CXX1104].
+    ndkVersion = "27.3.13750724"
 
     defaultConfig {
         applicationId = "com.gotohex.rdp"
