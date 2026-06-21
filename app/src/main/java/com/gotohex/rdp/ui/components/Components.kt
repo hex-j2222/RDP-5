@@ -14,7 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ScreenShare as ScreenShareMirrored
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -360,7 +359,8 @@ fun RdpProfileCard(
                         if (profile.gatewayEnabled) InfoChip(Icons.Outlined.Dns, stringResource(R.string.rd_gateway))
                     }
                     ProtocolType.VNC -> {
-                        InfoChip(ScreenShareMirrored, "VNC")
+                        @Suppress("DEPRECATION")
+                        InfoChip(Icons.Outlined.ScreenShare, "VNC")
                         if (profile.vncViewOnly) InfoChip(Icons.Outlined.Visibility, stringResource(R.string.vnc_view_only))
                     }
                     ProtocolType.SSH -> {
@@ -916,7 +916,8 @@ private fun ProtocolSelector(
 
 fun protocolIcon(type: ProtocolType): androidx.compose.ui.graphics.vector.ImageVector = when (type) {
     ProtocolType.RDP -> Icons.Outlined.DesktopWindows
-    ProtocolType.VNC -> ScreenShareMirrored
+    @Suppress("DEPRECATION")
+    ProtocolType.VNC -> Icons.Outlined.ScreenShare
     ProtocolType.SSH -> Icons.Outlined.Terminal
 }
 
