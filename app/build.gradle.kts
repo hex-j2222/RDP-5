@@ -108,12 +108,28 @@ android {
     lint {
         abortOnError = false
         checkReleaseBuilds = false
-        // These detectors crash with IncompatibleClassChangeError due to a
-        // mismatch between the Kotlin Analysis API version used by lint jars
-        // and the one shipped with the Kotlin compiler plugin. Safe to disable
-        // until the upstream lint jars are updated.
-        disable += "FlowOperatorInvokedInComposition"
-        disable += "NullSafeMutableLiveData"
+        // All detectors below crash with IncompatibleClassChangeError because
+        // the Kotlin Analysis API interfaces they depend on changed from classes
+        // to interfaces between the Kotlin version used to compile lint jars
+        // and the one used by the compiler plugin. Disabling them globally
+        // until the upstream libraries ship updated lint artifacts.
+        disable += setOf(
+            // androidx.compose.runtime lint
+            "FlowOperatorInvokedInComposition",
+            "FrequentlyChangingValue",
+            "ComposableDestinationInComposeNavigator",
+            "ComposableLambdaParameterNaming",
+            "ComposableLambdaParameterPosition",
+            "CompositionLocalNaming",
+            "RememberReturnType",
+            "UnrememberedAnimatable",
+            "UnrememberedMutableInteractionSource",
+            "UnrememberedMutableState",
+            // androidx.lifecycle lint
+            "NullSafeMutableLiveData",
+            "StateFlowValueCalledInComposition",
+            "LifecycleWhenChecks",
+        )
     }
 }
 
@@ -178,4 +194,3 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
-
