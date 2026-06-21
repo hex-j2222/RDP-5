@@ -137,7 +137,9 @@ jobs:
           echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
             "ndk;${{ env.NDK_VERSION }}" \
             "cmake;${{ env.CMAKE_VERSION }}"
-          echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> local.properties
+          # ملاحظة: لا نكتب ndk.dir في local.properties — هذا أسلوب قديم (deprecated)
+          # يصدر تحذير [CXX5106]. android.ndkVersion في app/build.gradle.kts يكفي
+          # وحده لتحديد NDK المطلوب من بين النسخ المثبتة في $ANDROID_SDK_ROOT/ndk/.
           echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
 
       # 5. تثبيت تبعيات البناء
@@ -431,7 +433,9 @@ jobs:
           echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
             "ndk;${{ env.NDK_VERSION }}" \
             "cmake;${{ env.CMAKE_VERSION }}"
-          echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> local.properties
+          # ملاحظة: لا نكتب ndk.dir في local.properties — هذا أسلوب قديم (deprecated)
+          # يصدر تحذير [CXX5106]. android.ndkVersion في app/build.gradle.kts يكفي
+          # وحده لتحديد NDK المطلوب من بين النسخ المثبتة في $ANDROID_SDK_ROOT/ndk/.
           echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
 
       - name: Install build dependencies
